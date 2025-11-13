@@ -14,6 +14,15 @@ const config = getConfig();
 const OLLAMA_API_URL = config.ollama.apiUrl;
 const DEFAULT_MODELS = config.ollama.models;
 
+// Job queue configuration (with defaults from config)
+const RETRY_CONFIG = config.jobQueue ? {
+  maxAttempts: config.jobQueue.defaultRetryAttempts,
+  initialDelayMs: config.jobQueue.defaultInitialDelayMs,
+  maxDelayMs: config.jobQueue.defaultMaxDelayMs,
+  multiplier: 2,
+  timeoutMs: 30000,
+} : DEFAULT_RETRY_CONFIG;
+
 // Store conversation history per session
 interface ConversationMessage {
   role: "user" | "assistant";
@@ -348,7 +357,7 @@ FINAL ANSWER:
 
                   return res;
                 },
-                DEFAULT_RETRY_CONFIG,
+                RETRY_CONFIG,
                 (log) => {
                   retryLogs.push(log);
                   if (!log.success && log.error) {
@@ -592,7 +601,7 @@ server.tool(
 
                   return res;
                 },
-                DEFAULT_RETRY_CONFIG,
+                RETRY_CONFIG,
                 (log) => {
                   retryLogs.push(log);
                   if (!log.success && log.error) {
@@ -746,6 +755,9 @@ server.tool(
             sessions: Object.keys(conversationHistory).length,
             totalMessages: Object.values(conversationHistory).reduce((sum, msgs) => sum + msgs.length, 0),
           },
+          jobQueue: {
+            statistics: jobQueue.getStatistics(),
+          },
         },
       };
 
@@ -777,7 +789,7 @@ server.tool(
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             return res;
           },
-          { ...DEFAULT_RETRY_CONFIG, maxAttempts: 2 },
+          { ...RETRY_CONFIG, maxAttempts: 2 },
           undefined
         );
 
@@ -1027,6 +1039,34 @@ async function loadExistingSessions() {
   }
 }
 
+/**
+ * Restore incomplete jobs from database for recovery on restart
+ */
+async function restoreIncompleteJobs() {
+  try {
+    const db = getDatabase();
+    const jobs = db.getAllJobs();
+    
+    const incompleteJobs = jobs.filter(job => 
+      job.status === 'pending' || job.status === 'running'
+    );
+
+    if (incompleteJobs.length > 0) {
+      console.error(`⚠️ Restoring ${incompleteJobs.length} incomplete jobs from database...`);
+      
+      for (const job of incompleteJobs) {
+        // Re-submit jobs that were pending or running
+        if (job.status === 'pending' || job.status === 'running') {
+          const newJobId = jobQueue.submitJob(job.type as any, job.input);
+          debugLog(`Restored job ${job.id} → new ID: ${newJobId}`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`⚠️ Database: Error restoring jobs:`, error);
+  }
+}
+
 async function main() {
   try {
     // Initialize database
@@ -1037,12 +1077,18 @@ async function main() {
     // Load existing sessions from database
     await loadExistingSessions();
     
+    // Restore incomplete jobs from database
+    await restoreIncompleteJobs();
+    
     // Print configuration info on startup
     printConfigInfo(config);
     
     // Print database statistics
     const stats = db.getStatistics();
     console.error(`📊 Database Statistics: ${stats.totalSessions} sessions, ${stats.totalMessages} messages, ${(stats.databaseSize / 1024).toFixed(2)} KB`);
+    if (stats.jobStats) {
+      console.error(`📋 Job Statistics: ${stats.totalJobs} total, ${stats.jobStats.pending} pending, ${stats.jobStats.running} running, ${stats.jobStats.completed} completed, ${stats.jobStats.failed} failed`);
+    }
 
     const transport = new StdioServerTransport();
     await server.connect(transport);

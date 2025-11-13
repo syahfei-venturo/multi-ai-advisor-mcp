@@ -1,6 +1,7 @@
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { z } from 'zod';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -22,7 +23,33 @@ interface Config {
   prompts: {
     [key: string]: string;
   };
+  jobQueue?: {
+    maxConcurrentJobs: number;
+    defaultRetryAttempts: number;
+    defaultInitialDelayMs: number;
+    defaultMaxDelayMs: number;
+  };
 }
+
+// Zod validation schema
+const ConfigSchema = z.object({
+  server: z.object({
+    name: z.string().min(1, 'Server name must not be empty'),
+    version: z.string().min(1, 'Version must not be empty'),
+    debug: z.boolean(),
+  }),
+  ollama: z.object({
+    apiUrl: z.string().url('Invalid Ollama URL format'),
+    models: z.array(z.string().min(1)).min(1, 'At least 1 model is required'),
+  }),
+  prompts: z.record(z.string()),
+  jobQueue: z.object({
+    maxConcurrentJobs: z.number().int().min(1).max(100),
+    defaultRetryAttempts: z.number().int().min(1).max(10),
+    defaultInitialDelayMs: z.number().int().min(100).max(10000),
+    defaultMaxDelayMs: z.number().int().min(1000).max(60000),
+  }).optional(),
+});
 
 /**
  * Parse command line arguments
@@ -51,6 +78,7 @@ function parseArgs(): Record<string, string | boolean> {
 
 /**
  * Get configuration from environment variables or CLI arguments
+ * Validates configuration against schema and throws error if invalid
  */
 export function getConfig(): Config {
   const cliArgs = parseArgs();
@@ -67,6 +95,12 @@ export function getConfig(): Config {
     return envValue === 'true' ? true : (envValue === 'false' ? false : defaultValue);
   };
   
+  const getNumber = (cliKey: string, envKey: string, defaultValue: number): number => {
+    if (cliArgs[cliKey]) return parseInt(String(cliArgs[cliKey]), 10);
+    const envValue = process.env[envKey];
+    return envValue ? parseInt(envValue, 10) : defaultValue;
+  };
+  
   const getStringArray = (cliKey: string, envKey: string, defaultValue: string[]): string[] => {
     const value = cliArgs[cliKey] || process.env[envKey];
     if (!value) return defaultValue;
@@ -81,44 +115,41 @@ export function getConfig(): Config {
   const models = getStringArray('models', 'DEFAULT_MODELS', ['gemma3:1b', 'llama3.2:1b', 'deepseek-r1:1.5b']);
   
   // Get system prompts - fully dynamic for any model
-  // Priority: CLI args (--model1-prompt, --model2-prompt) > ENV vars (MODEL_1_PROMPT, MODEL_2_PROMPT) > defaults
   const prompts: Record<string, string> = {};
   
   models.forEach((model, index) => {
-    // Try multiple CLI key formats:
-    // 1. Exact model name: --llama3:latest-prompt (unusual)
-    // 2. Model number: --model1-prompt, --model2-prompt (clean!)
-    // 3. Model prefix: --llama-prompt, --gemma-prompt (convenient)
-    
     let prompt = '';
-    const modelIndex = index + 1; // 1-indexed for CLI (model1, model2, model3)
+    const modelIndex = index + 1;
     const modelPrefix = model.split(':')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
     
-    // 1. Try model number format first (most explicit): --model1-prompt
     if (cliArgs[`model${modelIndex}-prompt`]) {
       prompt = String(cliArgs[`model${modelIndex}-prompt`]);
     }
-    // 2. Try model prefix format: --llama-prompt, --gemma-prompt
     else if (cliArgs[`${modelPrefix}-prompt`]) {
       prompt = String(cliArgs[`${modelPrefix}-prompt`]);
     }
-    // 3. Try indexed env var: MODEL_1_PROMPT, MODEL_2_PROMPT
     else if (process.env[`MODEL_${modelIndex}_PROMPT`]) {
       prompt = process.env[`MODEL_${modelIndex}_PROMPT`] || '';
     }
-    // 4. Try model-specific env vars (legacy support)
     else if (process.env[`${modelPrefix.toUpperCase()}_SYSTEM_PROMPT`]) {
       prompt = process.env[`${modelPrefix.toUpperCase()}_SYSTEM_PROMPT`] || '';
     }
-    // 5. Default fallback
     else {
       prompt = `You are a helpful AI assistant (${model}).`;
     }
     
     prompts[model] = prompt;
-  })
-  
-  return {
+  });
+
+  // Job queue configuration
+  const jobQueueConfig = {
+    maxConcurrentJobs: getNumber('max-concurrent-jobs', 'MAX_CONCURRENT_JOBS', 3),
+    defaultRetryAttempts: getNumber('retry-attempts', 'RETRY_MAX_ATTEMPTS', 4),
+    defaultInitialDelayMs: getNumber('retry-initial-delay', 'RETRY_INITIAL_DELAY_MS', 1000),
+    defaultMaxDelayMs: getNumber('retry-max-delay', 'RETRY_MAX_DELAY_MS', 8000),
+  };
+
+  const rawConfig = {
     server: {
       name: serverName,
       version: serverVersion,
@@ -129,7 +160,31 @@ export function getConfig(): Config {
       models,
     },
     prompts,
+    jobQueue: jobQueueConfig,
   };
+
+  // Validate configuration
+  try {
+    const validatedConfig = ConfigSchema.parse(rawConfig);
+    return validatedConfig as Config;
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      console.error('\n❌ Configuration Validation Failed!\n');
+      console.error('Errors:');
+      error.errors.forEach(err => {
+        const path = err.path.join('.');
+        console.error(`  • ${path || 'root'}: ${err.message}`);
+      });
+      console.error('\n💡 Tips:');
+      console.error('  - Check your .env file');
+      console.error('  - Verify CLI arguments');
+      console.error('  - Ollama URL must be valid (e.g., http://localhost:11434)');
+      console.error('  - At least 1 model must be specified');
+      console.error();
+      process.exit(1);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -145,6 +200,14 @@ export function printConfigInfo(config: Config): void {
   console.error(`  Debug Mode: ${config.server.debug ? '✓ Enabled' : '✗ Disabled'}`);
   console.error(`  Ollama API URL: ${config.ollama.apiUrl}`);
   console.error(`  Models: ${config.ollama.models.join(', ')}\n`);
+  
+  if (config.jobQueue) {
+    console.error('⚙️  Job Queue Configuration:');
+    console.error(`  Max Concurrent Jobs: ${config.jobQueue.maxConcurrentJobs}`);
+    console.error(`  Retry Attempts: ${config.jobQueue.defaultRetryAttempts}`);
+    console.error(`  Retry Initial Delay: ${config.jobQueue.defaultInitialDelayMs}ms`);
+    console.error(`  Retry Max Delay: ${config.jobQueue.defaultMaxDelayMs}ms\n`);
+  }
   
   console.error('💭 System Prompts:');
   Object.entries(config.prompts).forEach(([model, prompt]) => {
@@ -163,7 +226,11 @@ export function printConfigInfo(config: Config): void {
   console.error('  --models MODEL1,MODEL2,...      Comma-separated list of models to use');
   console.error('  --model1-prompt "TEXT"          System prompt for 1st model (works with ANY models!)');
   console.error('  --model2-prompt "TEXT"          System prompt for 2nd model');
-  console.error('  --model3-prompt "TEXT"          System prompt for 3rd model (etc.)\n');
+  console.error('  --model3-prompt "TEXT"          System prompt for 3rd model (etc.)');
+  console.error('  --max-concurrent-jobs NUM       Max concurrent jobs (default: 3)');
+  console.error('  --retry-attempts NUM            Max retry attempts (default: 4)');
+  console.error('  --retry-initial-delay NUM       Initial retry delay in ms (default: 1000)');
+  console.error('  --retry-max-delay NUM           Max retry delay in ms (default: 8000)\n');
   
   console.error('📚 Examples:');
   console.error('  # Basic start with defaults');
@@ -173,8 +240,8 @@ export function printConfigInfo(config: Config): void {
   console.error('    --model1-prompt "You are funny" \\');
   console.error('    --model2-prompt "You are helpful" \\');
   console.error('    --model3-prompt "You are analytical"\n');
-  console.error('  # Enable debug with custom Ollama URL');
-  console.error('  node build/index.js --debug --ollama-url http://192.168.1.10:11434\n');
+  console.error('  # Enable debug with custom Ollama URL and concurrency');
+  console.error('  node build/index.js --debug --ollama-url http://192.168.1.10:11434 --max-concurrent-jobs 5\n');
   console.error('  # Override via environment variables');
-  console.error('  OLLAMA_API_URL=http://remote:11434 DEBUG=true node build/index.js\n');
+  console.error('  OLLAMA_API_URL=http://remote:11434 MAX_CONCURRENT_JOBS=10 DEBUG=true node build/index.js\n');
 }

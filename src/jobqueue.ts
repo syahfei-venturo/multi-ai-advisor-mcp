@@ -285,5 +285,18 @@ export class JobQueue {
 
 /**
  * Global job queue instance
+ * Concurrency limit can be configured via MAX_CONCURRENT_JOBS environment variable or CLI args
  */
-export const jobQueue = new JobQueue(3);
+function getMaxConcurrentJobs(): number {
+  // Check CLI argument first (passed via config)
+  const envValue = process.env.MAX_CONCURRENT_JOBS;
+  const parsed = envValue ? parseInt(envValue, 10) : 3;
+  
+  // Validate: between 1 and 100
+  if (isNaN(parsed) || parsed < 1) return 3;
+  if (parsed > 100) return 100;
+  
+  return parsed;
+}
+
+export const jobQueue = new JobQueue(getMaxConcurrentJobs());

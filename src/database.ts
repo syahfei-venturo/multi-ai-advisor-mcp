@@ -132,6 +132,47 @@ export class ConversationDatabase {
     return messages;
   }
 
+  /**
+   * Load session history with pagination support
+   * Useful for large sessions to prevent loading all messages at once
+   */
+  public loadSessionHistoryPaginated(
+    sessionId: string,
+    limit: number = 100,
+    offset: number = 0
+  ): {
+    messages: ConversationMessage[];
+    total: number;
+    hasMore: boolean;
+  } {
+    // Get total count
+    const countStmt = this.db.prepare('SELECT COUNT(*) as count FROM conversations WHERE session_id = ?');
+    const total = (countStmt.get(sessionId) as any).count || 0;
+
+    // Get paginated messages
+    const stmt = this.db.prepare(`
+      SELECT * FROM conversations 
+      WHERE session_id = ? 
+      ORDER BY message_index DESC
+      LIMIT ? OFFSET ?
+    `);
+
+    const messages = stmt.all(sessionId, limit, offset) as ConversationMessage[];
+    
+    // Update last accessed
+    this.db.prepare(`
+      UPDATE session_metadata 
+      SET last_accessed = CURRENT_TIMESTAMP 
+      WHERE session_id = ?
+    `).run(sessionId);
+
+    return {
+      messages: messages.reverse(), // Reverse to maintain chronological order
+      total,
+      hasMore: offset + limit < total,
+    };
+  }
+
   public getAllSessions(): string[] {
     const stmt = this.db.prepare('SELECT DISTINCT session_id FROM conversations ORDER BY session_id');
     const results = stmt.all() as Array<{ session_id: string }>;
@@ -292,6 +333,14 @@ export class ConversationDatabase {
     totalMessages: number;
     totalSessions: number;
     databaseSize: number;
+    totalJobs?: number;
+    jobStats?: {
+      pending: number;
+      running: number;
+      completed: number;
+      failed: number;
+      cancelled: number;
+    };
   } {
     const messages = (this.db.prepare('SELECT COUNT(*) as count FROM conversations').get() as any).count;
     const sessions = (this.db.prepare('SELECT COUNT(*) as count FROM session_metadata').get() as any).count;
@@ -305,10 +354,30 @@ export class ConversationDatabase {
       // Database file doesn't exist yet
     }
 
+    // Get job statistics
+    const totalJobs = (this.db.prepare('SELECT COUNT(*) as count FROM jobs').get() as any).count || 0;
+    const jobStats = this.db.prepare(`
+      SELECT 
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running,
+        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
+        SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
+      FROM jobs
+    `).get() as any;
+
     return {
       totalMessages: messages,
       totalSessions: sessions,
       databaseSize: databaseSize,
+      totalJobs,
+      jobStats: jobStats ? {
+        pending: jobStats.pending || 0,
+        running: jobStats.running || 0,
+        completed: jobStats.completed || 0,
+        failed: jobStats.failed || 0,
+        cancelled: jobStats.cancelled || 0,
+      } : undefined,
     };
   }
 
