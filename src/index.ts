@@ -81,70 +81,6 @@ const debugLog = (message: string) => {
   }
 };
 
-// Tool to list available models in Ollama
-server.tool(
-  "list-available-models",
-  "List all available models in Ollama that can be used with query-models",
-  {},
-  async () => {
-    try {
-      const response = await fetch(`${OLLAMA_API_URL}/api/tags`);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json() as { models: OllamaModel[] };
-      
-      if (!data.models || !Array.isArray(data.models)) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "No models found or unexpected response format from Ollama API."
-            }
-          ]
-        };
-      }
-      
-      // Format model information
-      const modelInfo = data.models.map(model => {
-        const size = (model.size / (1024 * 1024 * 1024)).toFixed(2); // Convert to GB
-        const paramSize = model.details?.parameter_size || "Unknown";
-        const quantLevel = model.details?.quantization_level || "Unknown";
-        
-        return `- **${model.name}**: ${paramSize} parameters, ${size} GB, ${quantLevel} quantization`;
-      }).join("\n");
-      
-      // Show which models are currently configured as defaults
-      const defaultModelsInfo = DEFAULT_MODELS.map(model => {
-        const isAvailable = data.models.some(m => m.name === model);
-        return `- **${model}**: ${isAvailable ? "✓ Available" : "⚠️ Not available"}`;
-      }).join("\n");
-      
-      return {
-        content: [
-          {
-            type: "text",
-            text: `# Available Ollama Models\n\n${modelInfo}\n\n## Current Default Models\n\n${defaultModelsInfo}\n\nYou can use any of the available models with the query-models tool by specifying them in the 'models' parameter.`
-          }
-        ]
-      };
-    } catch (error) {
-      console.error("Error listing models:", error);
-      return {
-        isError: true,
-        content: [
-          {
-            type: "text",
-            text: `Error listing models: ${error instanceof Error ? error.message : String(error)}\n\nMake sure Ollama is running and accessible at ${OLLAMA_API_URL}.`
-          }
-        ]
-      };
-    }
-  }
-);
-
 // Tool to manage conversation history
 server.tool(
   "manage-conversation",
@@ -159,19 +95,19 @@ server.tool(
         const sessionList = Object.entries(conversationHistory)
           .map(([id, messages]) => `- **${id}**: ${messages.length} messages`)
           .join("\n");
-        
+
         return {
           content: [
             {
               type: "text",
-              text: sessionList.length > 0 
+              text: sessionList.length > 0
                 ? `# Active Conversation Sessions\n\n${sessionList}`
                 : "No active conversation sessions found."
             }
           ]
         };
       }
-      
+
       if (action === "view") {
         if (!conversationHistory[session_id]) {
           return {
@@ -183,7 +119,7 @@ server.tool(
             ]
           };
         }
-        
+
         const historyText = conversationHistory[session_id]
           .map((msg, idx) => {
             const role = msg.role === "user" ? "👤 User" : `🤖 Assistant (${msg.model || "multi-model"})`;
@@ -191,7 +127,7 @@ server.tool(
             return `${idx + 1}. **${role}**\n${msg.content}${thinkingSection}\n`;
           })
           .join("\n---\n\n");
-        
+
         return {
           content: [
             {
@@ -201,7 +137,7 @@ server.tool(
           ]
         };
       }
-      
+
       if (action === "clear") {
         delete conversationHistory[session_id];
         return {
@@ -213,7 +149,7 @@ server.tool(
           ]
         };
       }
-      
+
       return {
         content: [
           {
@@ -243,30 +179,29 @@ server.tool(
   "Query models with sequential thinking process - models will think through the problem step-by-step",
   {
     question: z.string().describe("The question or problem to analyze"),
-    models: z.array(z.string()).optional().describe("Array of model names to query (defaults to configured models)"),
     system_prompt: z.string().optional().describe("Optional system prompt for the analysis"),
     model_system_prompts: z.record(z.string()).optional().describe("Optional object mapping model names to specific system prompts"),
     session_id: z.string().optional().describe("Session ID for conversation memory"),
     num_thinking_steps: z.number().optional().describe("Number of thinking steps to encourage (default: 5)"),
     include_history: z.boolean().optional().describe("Whether to include previous conversation history (default: true)"),
   },
-  async ({ question, models, system_prompt, model_system_prompts, session_id, num_thinking_steps = 5, include_history = true }) => {
+  async ({ question, system_prompt, model_system_prompts, session_id, num_thinking_steps = 5, include_history = true }) => {
     try {
       // Generate or use provided session ID
       const currentSessionId = session_id || `session_${Date.now()}`;
-      
+
       // Initialize session history if it doesn't exist
       if (!conversationHistory[currentSessionId]) {
         conversationHistory[currentSessionId] = [];
       }
-      
+
       // Use provided models or fall back to default models from environment
-      const modelsToQuery = models || DEFAULT_MODELS;
-      
+      const modelsToQuery = DEFAULT_MODELS;
+
       debugLog(`Thinking analysis for models: ${modelsToQuery.join(", ")}`);
       debugLog(`Session ID: ${currentSessionId}`);
       debugLog(`Thinking steps requested: ${num_thinking_steps}`);
-      
+
       // Enhanced system prompt for thinking
       const thinkingSystemPrompt = `You are an expert analytical AI assistant. When solving problems:
 1. Break down the problem into ${num_thinking_steps} clear thinking steps
@@ -286,24 +221,24 @@ Reasoning: [how it relates to step 1]
 
 FINAL ANSWER:
 [Your comprehensive final response based on the thinking process]`;
-      
+
       // Query each model in parallel with thinking prompts
       const responses = await Promise.all(
         modelsToQuery.map(async (modelName) => {
           try {
             // Determine which system prompt to use for this model
             let modelSystemPrompt = system_prompt || thinkingSystemPrompt;
-            
+
             // If model-specific prompts are provided, use those instead
             if (model_system_prompts && model_system_prompts[modelName]) {
               modelSystemPrompt = model_system_prompts[modelName];
             }
 
             debugLog(`Querying ${modelName} with thinking process...`);
-            
+
             // Build conversation context from history
             let conversationContext = "";
-            
+
             if (include_history && conversationHistory[currentSessionId].length > 0) {
               conversationContext = "Previous conversation:\n\n";
               conversationHistory[currentSessionId].forEach(msg => {
@@ -313,12 +248,12 @@ FINAL ANSWER:
               conversationContext += "---\n\n";
               debugLog(`Conversation context length: ${conversationContext.length}`);
             }
-            
+
             // Combine context with the current question
-            const fullPrompt = include_history && conversationHistory[currentSessionId].length > 0 
-              ? `${conversationContext}New user question: ${question}` 
+            const fullPrompt = include_history && conversationHistory[currentSessionId].length > 0
+              ? `${conversationContext}New user question: ${question}`
               : question;
-            
+
             const response = await fetch(`${OLLAMA_API_URL}/api/generate`, {
               method: "POST",
               headers: {
@@ -337,15 +272,15 @@ FINAL ANSWER:
             }
 
             const data = await response.json() as OllamaResponse;
-            
+
             // Parse thinking steps from response
             const responseText = data.response;
             const thinkingMatch = responseText.match(/THINKING PROCESS:([\s\S]*?)FINAL ANSWER:/i);
             const finalMatch = responseText.match(/FINAL ANSWER:([\s\S]*)/i);
-            
+
             const thinkingContent = thinkingMatch ? thinkingMatch[1].trim() : "";
             const finalAnswer = finalMatch ? finalMatch[1].trim() : responseText;
-            
+
             return {
               model: modelName,
               response: finalAnswer,
@@ -369,7 +304,7 @@ FINAL ANSWER:
         role: "user",
         content: question,
       });
-      
+
       // Add all model responses to history with thinking
       responses.forEach(resp => {
         if (!resp.error) {
@@ -381,7 +316,7 @@ FINAL ANSWER:
           });
         }
       });
-      
+
       // Keep history manageable
       const MAX_HISTORY = 40;
       if (conversationHistory[currentSessionId].length > MAX_HISTORY) {
@@ -390,10 +325,10 @@ FINAL ANSWER:
 
       // Format the response with thinking process visible
       const formattedText = `# Sequential Thinking Analysis Results\n\n**Session ID**: \`${currentSessionId}\`\n(Use this session ID to continue the conversation)\n\n${responses.map(resp => {
-        const thinkingSection = resp.thinking 
-          ? `### 💭 Thinking Process:\n${resp.thinking}\n\n` 
+        const thinkingSection = resp.thinking
+          ? `### 💭 Thinking Process:\n${resp.thinking}\n\n`
           : '';
-        
+
         return `## ${resp.model.toUpperCase()} RESPONSE:\n\n${thinkingSection}### Final Answer:\n${resp.response}\n\n---\n\n`;
       }).join("")}\n\n**Summary**: Compare the thinking processes above to see how different models approach the problem. The diversity in thinking paths can reveal important perspectives and potential blind spots.`;
 
@@ -426,53 +361,52 @@ server.tool(
   "Query multiple AI models via Ollama and get their responses to compare perspectives",
   {
     question: z.string().describe("The question to ask all models"),
-    models: z.array(z.string()).optional().describe("Array of model names to query (defaults to configured models)"),
+    // models: z.array(z.string()).optional().describe("Array of model names to query (defaults to configured models)"),
     system_prompt: z.string().optional().describe("Optional system prompt to provide context to all models (overridden by model_system_prompts if provided)"),
     model_system_prompts: z.record(z.string()).optional().describe("Optional object mapping model names to specific system prompts"),
     session_id: z.string().optional().describe("Session ID for conversation memory. Use the same ID to continue a conversation"),
     include_history: z.boolean().optional().describe("Whether to include previous conversation history (default: true)"),
     enable_thinking: z.boolean().optional().describe("Enable sequential thinking mode for deeper analysis (default: false)"),
   },
-  async ({ question, models, system_prompt, model_system_prompts, session_id, include_history = true, enable_thinking = false }) => {
+  async ({ question, system_prompt, model_system_prompts, session_id, include_history = true, enable_thinking = false }) => {
     try {
       // If thinking is enabled, delegate to the thinking tool
       if (enable_thinking) {
         const thinkingToolParams = {
           question,
-          models,
           system_prompt,
           model_system_prompts,
           session_id,
           include_history,
         };
-        
+
         // We'll implement this by directly calling the thinking logic
         debugLog("Thinking mode enabled, redirecting to sequential thinking analysis");
       }
-      
+
       // Generate or use provided session ID
       const currentSessionId = session_id || `session_${Date.now()}`;
-      
+
       // Initialize session history if it doesn't exist
       if (!conversationHistory[currentSessionId]) {
         conversationHistory[currentSessionId] = [];
       }
-      
+
       // Use provided models or fall back to default models from environment
-      const modelsToQuery = models || DEFAULT_MODELS;
-      
+      const modelsToQuery = DEFAULT_MODELS;
+
       debugLog(`Using models: ${modelsToQuery.join(", ")}`);
       debugLog(`Session ID: ${currentSessionId}`);
       debugLog(`History length: ${conversationHistory[currentSessionId].length}`);
       debugLog(`Thinking mode: ${enable_thinking}`);
-      
+
       // Query each model in parallel
       const responses = await Promise.all(
         modelsToQuery.map(async (modelName) => {
           try {
             // Determine which system prompt to use for this model
             let modelSystemPrompt = system_prompt || "You are a helpful AI assistant answering a user's question.";
-            
+
             // If model-specific prompts are provided, use those instead
             if (model_system_prompts && model_system_prompts[modelName]) {
               modelSystemPrompt = model_system_prompts[modelName];
@@ -483,10 +417,10 @@ server.tool(
             }
 
             debugLog(`Querying ${modelName} with system prompt: ${modelSystemPrompt.substring(0, 50)}...`);
-            
+
             // Build conversation context from history
             let conversationContext = "";
-            
+
             if (include_history && conversationHistory[currentSessionId].length > 0) {
               conversationContext = "Previous conversation:\n\n";
               conversationHistory[currentSessionId].forEach(msg => {
@@ -496,12 +430,12 @@ server.tool(
               conversationContext += "---\n\n";
               debugLog(`Conversation context length: ${conversationContext.length}`);
             }
-            
+
             // Combine context with the current question
-            const fullPrompt = include_history && conversationHistory[currentSessionId].length > 0 
-              ? `${conversationContext}New user question: ${question}` 
+            const fullPrompt = include_history && conversationHistory[currentSessionId].length > 0
+              ? `${conversationContext}New user question: ${question}`
               : question;
-            
+
             const response = await fetch(`${OLLAMA_API_URL}/api/generate`, {
               method: "POST",
               headers: {
@@ -541,7 +475,7 @@ server.tool(
         role: "user",
         content: question,
       });
-      
+
       // Add all model responses to history
       responses.forEach(resp => {
         if (!resp.error) {
@@ -552,7 +486,7 @@ server.tool(
           });
         }
       });
-      
+
       // Keep history manageable (keep last 20 exchanges to prevent memory issues)
       const MAX_HISTORY = 40; // 20 exchanges * 2 (user + assistant)
       if (conversationHistory[currentSessionId].length > MAX_HISTORY) {
@@ -561,9 +495,9 @@ server.tool(
 
       // Format the response in a way that's easy for Claude to analyze
       const formattedText = `# Responses from Multiple Models\n\n**Session ID**: \`${currentSessionId}\`\n(Use this session ID to continue the conversation)\n\n${enable_thinking ? '✨ **Thinking mode enabled** - Models used step-by-step reasoning\n\n' : ''}${responses.map(resp => {
-        const roleInfo = resp.systemPrompt ? 
+        const roleInfo = resp.systemPrompt ?
           `*Role: ${resp.systemPrompt.substring(0, 100)}${resp.systemPrompt.length > 100 ? '...' : ''}*\n\n` : '';
-        
+
         return `## ${resp.model.toUpperCase()} RESPONSE:\n${roleInfo}${resp.response}\n\n`;
       }).join("")}\n\nConsider the perspectives above when formulating your response. You may agree or disagree with any of these models. Note that these are all compact 1-1.5B parameter models, so take that into account when evaluating their responses.`;
 
@@ -594,7 +528,7 @@ server.tool(
 async function main() {
   // Print configuration info on startup
   printConfigInfo(config);
-  
+
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error(`\n✅ Multi-Model Advisor MCP Server running on stdio`);
