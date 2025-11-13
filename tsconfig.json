@@ -8,8 +8,17 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "lib": ["ES2022"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules"],
+  "ts-jest": {
+    "tsconfig": {
+      "target": "ES2022",
+      "module": "Node16",
+      "moduleResolution": "Node16"
+    }
+  }
 }

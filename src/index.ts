@@ -3,6 +3,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import fetch from "node-fetch";
 import { getConfig, printConfigInfo } from "./config.js";
+import { initializeDatabase, getDatabase, closeDatabase } from "./database.js";
 
 // Load configuration from environment and CLI arguments
 const config = getConfig();
@@ -304,9 +305,22 @@ FINAL ANSWER:
         role: "user",
         content: question,
       });
+      
+      // Save user message to database
+      try {
+        const db = getDatabase();
+        db.saveMessage(
+          currentSessionId,
+          conversationHistory[currentSessionId].length - 1,
+          "user",
+          question
+        );
+      } catch (dbError) {
+        console.error("Error saving user message to database:", dbError);
+      }
 
       // Add all model responses to history with thinking
-      responses.forEach(resp => {
+      responses.forEach((resp, index) => {
         if (!resp.error) {
           conversationHistory[currentSessionId].push({
             role: "assistant",
@@ -314,6 +328,21 @@ FINAL ANSWER:
             model: resp.model,
             thinking: resp.thinking,
           });
+          
+          // Save assistant message to database with thinking
+          try {
+            const db = getDatabase();
+            db.saveMessage(
+              currentSessionId,
+              conversationHistory[currentSessionId].length - 1,
+              "assistant",
+              resp.response,
+              resp.model,
+              resp.thinking
+            );
+          } catch (dbError) {
+            console.error("Error saving assistant message to database:", dbError);
+          }
         }
       });
 
@@ -475,15 +504,42 @@ server.tool(
         role: "user",
         content: question,
       });
+      
+      // Save user message to database
+      try {
+        const db = getDatabase();
+        db.saveMessage(
+          currentSessionId,
+          conversationHistory[currentSessionId].length - 1,
+          "user",
+          question
+        );
+      } catch (dbError) {
+        console.error("Error saving user message to database:", dbError);
+      }
 
       // Add all model responses to history
-      responses.forEach(resp => {
+      responses.forEach((resp, index) => {
         if (!resp.error) {
           conversationHistory[currentSessionId].push({
             role: "assistant",
             content: resp.response,
             model: resp.model,
           });
+          
+          // Save assistant message to database
+          try {
+            const db = getDatabase();
+            db.saveMessage(
+              currentSessionId,
+              conversationHistory[currentSessionId].length - 1,
+              "assistant",
+              resp.response,
+              resp.model
+            );
+          } catch (dbError) {
+            console.error("Error saving assistant message to database:", dbError);
+          }
         }
       });
 
@@ -525,16 +581,60 @@ server.tool(
 );
 
 // Start the server
-async function main() {
-  // Print configuration info on startup
-  printConfigInfo(config);
-
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error(`\n✅ Multi-Model Advisor MCP Server running on stdio`);
+async function loadExistingSessions() {
+  try {
+    const db = getDatabase();
+    const sessions = db.getAllSessions();
+    
+    for (const sessionId of sessions) {
+      const messages = db.loadSessionHistory(sessionId);
+      conversationHistory[sessionId] = messages.map(msg => ({
+        role: msg.role as "user" | "assistant",
+        content: msg.content,
+        model: msg.model_name,
+        thinking: msg.thinking_text,
+      }));
+      debugLog(`Loaded ${messages.length} messages for session: ${sessionId}`);
+    }
+    
+    if (sessions.length > 0) {
+      console.error(`✅ Database: Loaded ${sessions.length} existing sessions with conversation history`);
+    }
+  } catch (error) {
+    console.error(`⚠️ Database: Error loading existing sessions:`, error);
+  }
 }
 
-main().catch((error) => {
-  console.error("Fatal error in main():", error);
-  process.exit(1);
-});
+async function main() {
+  try {
+    // Initialize database
+    initializeDatabase();
+    const db = getDatabase();
+    debugLog(`Database initialized at: ${db.getDatabasePath()}`);
+    
+    // Load existing sessions from database
+    await loadExistingSessions();
+    
+    // Print configuration info on startup
+    printConfigInfo(config);
+    
+    // Print database statistics
+    const stats = db.getStatistics();
+    console.error(`📊 Database Statistics: ${stats.totalSessions} sessions, ${stats.totalMessages} messages, ${(stats.databaseSize / 1024).toFixed(2)} KB`);
+
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error(`\n✅ Multi-Model Advisor MCP Server running on stdio`);
+    
+    // Graceful shutdown
+    process.on('SIGINT', () => {
+      console.error('\n👋 Shutting down gracefully...');
+      closeDatabase();
+      process.exit(0);
+    });
+  } catch (error) {
+    console.error("Fatal error in main():", error);
+    closeDatabase();
+    process.exit(1);
+  }
+}
