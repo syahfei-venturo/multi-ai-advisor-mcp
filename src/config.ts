@@ -23,6 +23,10 @@ interface Config {
   prompts: {
     [key: string]: string;
   };
+  thinking?: {
+    defaultThinkingSteps: number;
+    maxThinkingSteps: number;
+  };
   jobQueue?: {
     maxConcurrentJobs: number;
     defaultRetryAttempts: number;
@@ -43,8 +47,12 @@ const ConfigSchema = z.object({
     models: z.array(z.string().min(1)).min(1, 'At least 1 model is required'),
   }),
   prompts: z.record(z.string()),
+  thinking: z.object({
+    defaultThinkingSteps: z.number().int().min(1).max(5),
+    maxThinkingSteps: z.number().int().min(1).max(5),
+  }).optional(),
   jobQueue: z.object({
-    maxConcurrentJobs: z.number().int().min(1).max(100),
+    maxConcurrentJobs: z.number().int().min(1).max(2),
     defaultRetryAttempts: z.number().int().min(1).max(10),
     defaultInitialDelayMs: z.number().int().min(100).max(10000),
     defaultMaxDelayMs: z.number().int().min(1000).max(60000),
@@ -112,7 +120,7 @@ export function getConfig(): Config {
   const debug = getBoolean('debug', 'DEBUG', false);
   
   const ollamaUrl = getString('ollama-url', 'OLLAMA_API_URL', 'http://localhost:11434');
-  const models = getStringArray('models', 'DEFAULT_MODELS', ['gemma3:1b', 'llama3.2:1b', 'deepseek-r1:1.5b']);
+  const models = getStringArray('models', 'DEFAULT_MODELS', ['gemma3:1b', 'gemma3:1b', 'gemma3:1b']);
   
   // Get system prompts - fully dynamic for any model
   const prompts: Record<string, string> = {};
@@ -143,10 +151,16 @@ export function getConfig(): Config {
 
   // Job queue configuration
   const jobQueueConfig = {
-    maxConcurrentJobs: getNumber('max-concurrent-jobs', 'MAX_CONCURRENT_JOBS', 3),
+    maxConcurrentJobs: getNumber('max-concurrent-jobs', 'MAX_CONCURRENT_JOBS', 2),
     defaultRetryAttempts: getNumber('retry-attempts', 'RETRY_MAX_ATTEMPTS', 4),
-    defaultInitialDelayMs: getNumber('retry-initial-delay', 'RETRY_INITIAL_DELAY_MS', 1000),
-    defaultMaxDelayMs: getNumber('retry-max-delay', 'RETRY_MAX_DELAY_MS', 8000),
+    defaultInitialDelayMs: getNumber('retry-initial-delay', 'RETRY_INITIAL_DELAY_MS', 3000),
+    defaultMaxDelayMs: getNumber('retry-max-delay', 'RETRY_MAX_DELAY_MS', 10000),
+  };
+
+  // Thinking configuration
+  const thinkingConfig = {
+    defaultThinkingSteps: getNumber('default-thinking-steps', 'DEFAULT_THINKING_STEPS', 3),
+    maxThinkingSteps: getNumber('max-thinking-steps', 'MAX_THINKING_STEPS', 4),
   };
 
   const rawConfig = {
@@ -160,6 +174,7 @@ export function getConfig(): Config {
       models,
     },
     prompts,
+    thinking: thinkingConfig,
     jobQueue: jobQueueConfig,
   };
 
@@ -208,6 +223,12 @@ export function printConfigInfo(config: Config): void {
     console.error(`  Retry Initial Delay: ${config.jobQueue.defaultInitialDelayMs}ms`);
     console.error(`  Retry Max Delay: ${config.jobQueue.defaultMaxDelayMs}ms\n`);
   }
+
+  if (config.thinking) {
+    console.error('💭 Thinking Configuration:');
+    console.error(`  Default Thinking Steps: ${config.thinking.defaultThinkingSteps}`);
+    console.error(`  Max Thinking Steps: ${config.thinking.maxThinkingSteps}\n`);
+  }
   
   console.error('💭 System Prompts:');
   Object.entries(config.prompts).forEach(([model, prompt]) => {
@@ -227,10 +248,12 @@ export function printConfigInfo(config: Config): void {
   console.error('  --model1-prompt "TEXT"          System prompt for 1st model (works with ANY models!)');
   console.error('  --model2-prompt "TEXT"          System prompt for 2nd model');
   console.error('  --model3-prompt "TEXT"          System prompt for 3rd model (etc.)');
-  console.error('  --max-concurrent-jobs NUM       Max concurrent jobs (default: 3)');
+  console.error('  --max-concurrent-jobs NUM       Max concurrent jobs (default: 2)');
   console.error('  --retry-attempts NUM            Max retry attempts (default: 4)');
-  console.error('  --retry-initial-delay NUM       Initial retry delay in ms (default: 1000)');
-  console.error('  --retry-max-delay NUM           Max retry delay in ms (default: 8000)\n');
+  console.error('  --retry-initial-delay NUM       Initial retry delay in ms (default: 2000)');
+  console.error('  --retry-max-delay NUM           Max retry delay in ms (default: 10000)');
+  console.error('  --default-thinking-steps NUM    Default thinking steps (default: 3)');
+  console.error('  --max-thinking-steps NUM        Max thinking steps allowed (default: 4)\n');
   
   console.error('📚 Examples:');
   console.error('  # Basic start with defaults');

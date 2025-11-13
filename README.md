@@ -181,7 +181,6 @@ Simply ask Claude to use the multi-model advisor:
 
 ```
 what are the most important skills for success in today's job market, 
-you can use gemma3:1b, llama3.2:1b, deepseek-r1:1.5b to help you 
 ```
 
 Claude will query all default models and provide a synthesized response based on their different perspectives.

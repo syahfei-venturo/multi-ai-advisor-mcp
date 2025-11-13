@@ -581,14 +581,19 @@ server.tool(
     system_prompt: z.string().optional().describe("Optional system prompt for the analysis"),
     model_system_prompts: z.record(z.string()).optional().describe("Optional object mapping model names to specific system prompts"),
     session_id: z.string().optional().describe("Session ID for conversation memory"),
-    num_thinking_steps: z.number().optional().describe("Number of thinking steps to encourage (default: 5)"),
+    num_thinking_steps: z.number().optional().describe("Number of thinking steps to encourage (default: 3, max: 4 - configured via CLI or environment)"),
     include_history: z.boolean().optional().describe("Whether to include previous conversation history (default: true)"),
   },
-  async ({ question, system_prompt, model_system_prompts, session_id, num_thinking_steps = 5, include_history = true }) => {
+  async ({ question, system_prompt, model_system_prompts, session_id, num_thinking_steps, include_history = true }) => {
     try {
+      // Use config defaults if not provided, enforce max
+      const defaultSteps = config.thinking?.defaultThinkingSteps || 3;
+      const maxSteps = config.thinking?.maxThinkingSteps || 4;
+      const thinkingSteps = Math.min(num_thinking_steps ?? defaultSteps, maxSteps);
+
       // Estimate time based on thinking steps count
       const modelsCount = DEFAULT_MODELS.length;
-      const estimatedMs = modelsCount * (3000 + num_thinking_steps * 1000); // More time for thinking
+      const estimatedMs = modelsCount * (3000 + thinkingSteps * 1000); // More time for thinking
 
       // Submit job to queue (non-blocking)
       const jobId = jobQueue.submitJob(
@@ -598,7 +603,7 @@ server.tool(
           system_prompt,
           model_system_prompts,
           session_id: session_id || `session_${Date.now()}`,
-          num_thinking_steps,
+          num_thinking_steps: thinkingSteps,
           include_history,
         },
         estimatedMs,
@@ -612,7 +617,7 @@ server.tool(
 ## Progress Information
 - **Status**: Pending
 - **Models to Analyze**: ${modelsCount}
-- **Thinking Steps per Model**: ${num_thinking_steps}
+- **Thinking Steps per Model**: ${thinkingSteps} (default: ${defaultSteps}, max: ${maxSteps})
 - **Estimated Time**: ~${(estimatedMs / 1000).toFixed(1)}s
 - **Job ID**: \`${jobId}\`
 
