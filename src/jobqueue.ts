@@ -55,7 +55,7 @@ export class JobQueue {
    * Submit a new job to the queue
    */
   submitJob(
-    type: 'query-models' | 'analyze-thinking',
+    type: 'query-models',
     input: Record<string, unknown>,
     estimatedTotalMs?: number,
     modelCount?: number
@@ -68,8 +68,8 @@ export class JobQueue {
       createdAt: new Date(),
       input,
       progressUpdates: [],
-      estimatedTotalMs: estimatedTotalMs || 30000, // Default 30 seconds
-      estimatedCompletionMs: estimatedTotalMs || 30000,
+      estimatedTotalMs: estimatedTotalMs || 300000, 
+      estimatedCompletionMs: estimatedTotalMs || 300000,
       modelCount: modelCount || 3,
     };
 
