@@ -44,3 +44,5 @@ temp/
 
 # Optional eslint cache
 .eslintcache
+
+data
