@@ -55,7 +55,7 @@ export class JobQueue {
    * Submit a new job to the queue
    */
   submitJob(
-    type: 'query-models' | 'analyze-thinking',
+    type: 'query-models',
     input: Record<string, unknown>,
     estimatedTotalMs?: number,
     modelCount?: number
