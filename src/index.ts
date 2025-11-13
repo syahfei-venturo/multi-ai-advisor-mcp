@@ -2,16 +2,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import fetch from "node-fetch";
-import * as dotenv from 'dotenv';
+import { getConfig, printConfigInfo } from "./config.js";
 
-// Load environment variables from .env file
-dotenv.config();
+// Load configuration from environment and CLI arguments
+const config = getConfig();
 
-// Ollama API URL from environment or fallback to default
-const OLLAMA_API_URL = process.env.OLLAMA_API_URL || "http://localhost:11434";
-
-// Specific models to use
-const DEFAULT_MODELS = process.env.DEFAULT_MODELS?.split(",") || ["gemma3:1b", "llama3.2:1b", "deepseek-r1:1.5b"];
+// Ollama API URL and models from config
+const OLLAMA_API_URL = config.ollama.apiUrl;
+const DEFAULT_MODELS = config.ollama.models;
 
 // Store conversation history per session
 interface ConversationMessage {
@@ -42,8 +40,8 @@ interface ModelThinkingProcess {
 
 // Create server instance
 const server = new McpServer({
-  name: process.env.SERVER_NAME || "multi-model-advisor",
-  version: process.env.SERVER_VERSION || "1.0.0",
+  name: config.server.name,
+  version: config.server.version,
 });
 
 // Define Ollama response types
@@ -74,18 +72,11 @@ interface SystemPrompts {
 }
 
 // Default system prompts for each model
-const DEFAULT_SYSTEM_PROMPTS: SystemPrompts = {
-  "gemma3:1b": process.env.GEMMA_SYSTEM_PROMPT || 
-    "You are a creative and innovative AI assistant. Think outside the box and offer novel perspectives.",
-  "llama3.2:1b": process.env.LLAMA_SYSTEM_PROMPT || 
-    "You are a supportive and empathetic AI assistant focused on human well-being. Provide considerate and balanced advice.",
-  "deepseek-r1:1.5b": process.env.DEEPSEEK_SYSTEM_PROMPT || 
-    "You are a logical and analytical AI assistant. Think step-by-step and explain your reasoning clearly."
-};
+const DEFAULT_SYSTEM_PROMPTS: SystemPrompts = config.prompts;
 
 // Debug log if enabled
 const debugLog = (message: string) => {
-  if (process.env.DEBUG === "true") {
+  if (config.server.debug) {
     console.error(`[DEBUG] ${message}`);
   }
 };
@@ -601,19 +592,12 @@ server.tool(
 
 // Start the server
 async function main() {
+  // Print configuration info on startup
+  printConfigInfo(config);
+  
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error(`Multi-Model Advisor MCP Server running on stdio`);
-  console.error(`Using Ollama API URL: ${OLLAMA_API_URL}`);
-  console.error(`Default models: ${DEFAULT_MODELS.join(", ")}`);
-  
-  if (process.env.DEBUG === "true") {
-    console.error("Debug mode enabled");
-    console.error("Default system prompts:");
-    Object.entries(DEFAULT_SYSTEM_PROMPTS).forEach(([model, prompt]) => {
-      console.error(`${model}: ${prompt.substring(0, 50)}...`);
-    });
-  }
+  console.error(`\n✅ Multi-Model Advisor MCP Server running on stdio`);
 }
 
 main().catch((error) => {

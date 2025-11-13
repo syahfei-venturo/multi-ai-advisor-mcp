@@ -71,6 +71,8 @@ npx -y @smithery/cli install @YuChenSSR/multi-ai-advisor-mcp --client claude
 
 ## Configuration
 
+### Via Environment Variables
+
 Create a `.env` file in the project root with your desired configuration:
 
 ```
@@ -88,6 +90,53 @@ GEMMA_SYSTEM_PROMPT=You are a creative and innovative AI assistant. Think outsid
 LLAMA_SYSTEM_PROMPT=You are a supportive and empathetic AI assistant focused on human well-being. Provide considerate and balanced advice.
 DEEPSEEK_SYSTEM_PROMPT=You are a logical and analytical AI assistant. Think step-by-step and explain your reasoning clearly.
 ```
+
+### Via Command-Line Arguments
+
+You can also override settings by passing command-line arguments when starting the server. CLI arguments take precedence over environment variables:
+
+```bash
+node build/index.js [OPTIONS]
+```
+
+**Available Options:**
+- `--server-name NAME` - Server name (default: multi-model-advisor)
+- `--server-version VERSION` - Server version (default: 1.0.0)
+- `--debug` - Enable debug mode (flag, no value needed)
+- `--ollama-url URL` - Ollama API URL (default: http://localhost:11434)
+- `--models MODEL1,MODEL2,...` - Comma-separated list of models
+- `--model1-prompt "TEXT"` - System prompt for 1st model (works with ANY models!)
+- `--model2-prompt "TEXT"` - System prompt for 2nd model
+- `--model3-prompt "TEXT"` - System prompt for 3rd model (etc.)
+
+**Examples:**
+
+```bash
+# Start with defaults from .env
+npm start
+
+# Enable debug mode
+npm run start:debug
+# or: node build/index.js --debug
+
+# Use a remote Ollama instance
+node build/index.js --ollama-url http://192.168.1.100:11434
+
+# Any models with dynamic prompts
+node build/index.js \
+  --models llama3:latest,neural-chat,mistral \
+  --model1-prompt "You are funny" \
+  --model2-prompt "You are helpful" \
+  --model3-prompt "You are analytical"
+
+# Combine CLI args with environment variables
+OLLAMA_API_URL=http://remote:11434 node build/index.js --debug --models llama3:latest
+```
+
+**Predefined npm scripts:**
+- `npm start` - Start with default configuration
+- `npm run start:debug` - Start with debug mode enabled
+- `npm run build` - Compile TypeScript to JavaScript
 
 ## Connect to Claude for Desktop
 
