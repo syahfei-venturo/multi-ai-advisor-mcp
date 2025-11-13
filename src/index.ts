@@ -1060,3 +1060,6 @@ async function main() {
     process.exit(1);
   }
 }
+
+// Call main function to start the server
+main();
