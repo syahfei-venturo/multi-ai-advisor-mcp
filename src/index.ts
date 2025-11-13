@@ -938,11 +938,6 @@ server.tool(
         )
         .join("\n");
 
-      const timeElapsedMs = job.startedAt ? Date.now() - job.startedAt.getTime() : 0;
-      const timeElapsedSec = (timeElapsedMs / 1000).toFixed(1);
-      const estimatedRemainingMs = job.estimatedCompletionMs || 0;
-      const estimatedRemainingSec = (estimatedRemainingMs / 1000).toFixed(1);
-
       let statusEmoji = '⏳';
       if (job.status === 'completed') statusEmoji = '✅';
       else if (job.status === 'running') statusEmoji = '🔄';
@@ -961,9 +956,6 @@ server.tool(
 - **Created**: ${job.createdAt.toISOString()}
 - **Started**: ${job.startedAt?.toISOString() || "Not yet started"}
 - **Completed**: ${job.completedAt?.toISOString() || "In progress"}
-- **Elapsed Time**: ${timeElapsedSec}s
-- **Estimated Remaining**: ~${estimatedRemainingSec}s
-- **Total Estimated**: ~${((job.estimatedTotalMs || 0) / 1000).toFixed(1)}s
 
 ## Progress Updates
 ${progressText || "No progress updates yet"}
