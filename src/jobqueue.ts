@@ -247,6 +247,14 @@ export class JobQueue {
   }
 
   /**
+   * Get job result (simplified version of getJobDetails)
+   */
+  getJobResult(jobId: string): unknown {
+    const job = this.getJobStatus(jobId);
+    return job?.result;
+  }
+
+  /**
    * Get queue statistics
    */
   getStatistics() {

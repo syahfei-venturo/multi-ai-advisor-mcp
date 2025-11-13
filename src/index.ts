@@ -377,8 +377,9 @@ server.tool(
     model_system_prompts: z.record(z.string()).optional().describe("Optional object mapping model names to specific system prompts"),
     session_id: z.string().optional().describe("Session ID for conversation memory. Use the same ID to continue a conversation"),
     include_history: z.boolean().optional().describe("Whether to include previous conversation history (default: true)"),
+    wait_for_completion: z.boolean().optional().describe("If true (default), wait for the job to complete and return results immediately. If false, return job ID for async polling"),
   },
-  async ({ question, system_prompt, model_system_prompts, session_id, include_history = true }) => {
+  async ({ question, system_prompt, model_system_prompts, session_id, include_history = true, wait_for_completion = true }) => {
     try {
       // Estimate time based on models count and thinking mode
       const modelsCount = DEFAULT_MODELS.length;
@@ -398,6 +399,89 @@ server.tool(
 
       debugLog(`Query job submitted: ${jobId}`);
 
+      // If wait_for_completion is true, poll until job is done
+      if (wait_for_completion) {
+        const maxWaitTime = 600000; // 10 minutes max
+        const pollInterval = 1000; // Check every 1 second
+        const startTime = Date.now();
+
+        while (Date.now() - startTime < maxWaitTime) {
+          const job = jobQueue.getJobStatus(jobId);
+
+          if (!job) {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: `Job ${jobId} not found`,
+                },
+              ],
+            };
+          }
+
+          if (job.status === 'completed') {
+            // Job completed successfully, return results
+            const result = jobQueue.getJobResult(jobId);
+            if (!result) {
+              return {
+                isError: true,
+                content: [
+                  {
+                    type: "text",
+                    text: `Job completed but no result found for job ID: ${jobId}`,
+                  },
+                ],
+              };
+            }
+
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: JSON.stringify(result, null, 2),
+                },
+              ],
+            };
+          } else if (job.status === 'failed') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: `Job failed: ${job.error || 'Unknown error'}`,
+                },
+              ],
+            };
+          } else if (job.status === 'cancelled') {
+            return {
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: `Job was cancelled`,
+                },
+              ],
+            };
+          }
+
+          // Wait before next poll
+          await new Promise(resolve => setTimeout(resolve, pollInterval));
+        }
+
+        // Timeout reached
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Job timeout: Maximum wait time of ${maxWaitTime / 1000} seconds reached. Job ID: ${jobId}\n\nYou can still check the job status using get-job-progress and retrieve results with get-job-result.`,
+            },
+          ],
+        };
+      }
+
+      // Default behavior: return job ID for async polling
       const responseText = `# ⏳ Query Submitted (Job ID: \`${jobId}\`)
 
 ## Progress Information
@@ -418,7 +502,9 @@ get-job-progress(job_id="${jobId}")
 Once the job is completed, you can fetch results with:
 \`\`\`
 get-job-result(job_id="${jobId}")
-\`\`\``;
+\`\`\`
+
+**Note**: By default, queries wait for completion automatically. Set \`wait_for_completion: false\` if you prefer async polling.`;
 
       return {
         content: [

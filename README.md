@@ -180,10 +180,33 @@ This will display all installed Ollama models and indicate which ones are config
 Simply ask Claude to use the multi-model advisor:
 
 ```
-what are the most important skills for success in today's job market, 
+what are the most important skills for success in today's job market,
 ```
 
 Claude will query all default models and provide a synthesized response based on their different perspectives.
+
+#### Sync Mode (Default)
+
+By default, the tool waits for all models to respond and returns results directly:
+
+```
+Use the multi-model advisor to analyze: "What is the future of AI?"
+```
+
+The tool will automatically wait for all models to respond (up to 10 minutes) and return the results.
+
+#### Async Mode (Manual Polling)
+
+For non-blocking execution with manual polling, set `wait_for_completion=false`:
+
+```
+Use the multi-model advisor with wait_for_completion=false to analyze: "What is the future of AI?"
+```
+
+Claude will:
+1. Submit the query and get a job ID
+2. Poll the job status using `get-job-progress`
+3. Retrieve results when complete using `get-job-result`
 
 ![example](https://raw.githubusercontent.com/YuChenSSR/pics/master/imgs/2025-03-24/Q53YEwdTaeTuL6a7.png)
 
@@ -202,6 +225,22 @@ Claude will query all default models and provide a synthesized response based on
    - Claude receives all responses and synthesizes a comprehensive answer
 
 3. Each model can have a different "persona" or role assigned, encouraging diverse perspectives.
+
+### Query Modes
+
+The `query-models` tool supports two modes:
+
+- **Sync Mode (default)**: Automatically waits for results
+  - Blocks until all models respond
+  - Returns results directly
+  - Maximum wait time: 10 minutes
+  - Best for interactive use
+
+- **Async Mode**: Set `wait_for_completion: false` for manual polling
+  - Returns a job ID immediately
+  - Use `get-job-progress` to check status
+  - Use `get-job-result` to retrieve results when complete
+  - Best for long-running queries or when you need non-blocking execution
 
 ## Troubleshooting
 
