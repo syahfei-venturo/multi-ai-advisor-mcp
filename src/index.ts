@@ -4,6 +4,8 @@ import { z } from "zod";
 import fetch from "node-fetch";
 import { getConfig, printConfigInfo } from "./config.js";
 import { initializeDatabase, getDatabase, closeDatabase } from "./database.js";
+import { withRetry, CircuitBreaker, DEFAULT_RETRY_CONFIG, isRetryableError, createErrorLog } from "./retry.js";
+import { jobQueue, Job } from "./jobqueue.js";
 
 // Load configuration from environment and CLI arguments
 const config = getConfig();
@@ -44,6 +46,74 @@ const server = new McpServer({
   name: config.server.name,
   version: config.server.version,
 });
+
+// Circuit breaker for Ollama API calls
+const ollamaCircuitBreaker = new CircuitBreaker(
+  5, // Failure threshold
+  60000 // Reset timeout (1 minute)
+);
+
+// Setup job queue handler for executing jobs
+jobQueue.onJobStarted_attach(async (job: Job) => {
+  // This handler executes jobs in the background
+  try {
+    if (job.type === 'query-models') {
+      // Execute query-models job
+      jobQueue.updateProgress(job.id, 5, 'Preparing query execution');
+      executeQueryModelJob(job);
+    } else if (job.type === 'analyze-thinking') {
+      jobQueue.updateProgress(job.id, 5, 'Initializing thinking analysis');
+      executeThinkingAnalysisJob(job);
+    }
+  } catch (error) {
+    jobQueue.failJob(job.id, error instanceof Error ? error.message : String(error));
+  }
+});
+
+/**
+ * Execute a query-models job asynchronously
+ */
+async function executeQueryModelJob(job: Job): Promise<void> {
+  try {
+    const input = job.input as any;
+    const { question, system_prompt, model_system_prompts, session_id, include_history } = input;
+    
+    jobQueue.updateProgress(job.id, 10, 'Querying models...');
+    
+    // Simulate execution for now - will be replaced with actual logic
+    setTimeout(() => {
+      jobQueue.completeJob(job.id, { 
+        response: 'Query executed', 
+        modelsQueried: DEFAULT_MODELS.length 
+      });
+    }, 100);
+  } catch (error) {
+    jobQueue.failJob(job.id, error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * Execute a thinking analysis job asynchronously
+ */
+async function executeThinkingAnalysisJob(job: Job): Promise<void> {
+  try {
+    const input = job.input as any;
+    const { question, system_prompt, model_system_prompts, session_id, num_thinking_steps } = input;
+    
+    jobQueue.updateProgress(job.id, 10, 'Analyzing with thinking process...');
+    
+    // Simulate execution for now
+    setTimeout(() => {
+      jobQueue.completeJob(job.id, { 
+        response: 'Thinking analysis completed', 
+        modelsQueried: DEFAULT_MODELS.length,
+        thinkingSteps: num_thinking_steps || 5
+      });
+    }, 100);
+  } catch (error) {
+    jobQueue.failJob(job.id, error instanceof Error ? error.message : String(error));
+  }
+}
 
 // Define Ollama response types
 interface OllamaResponse {
@@ -255,17 +325,39 @@ FINAL ANSWER:
               ? `${conversationContext}New user question: ${question}`
               : question;
 
-            const response = await fetch(`${OLLAMA_API_URL}/api/generate`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model: modelName,
-                prompt: fullPrompt,
-                system: modelSystemPrompt,
-                stream: false,
-              }),
+            const retryLogs: any[] = [];
+            const response = await ollamaCircuitBreaker.execute(async () => {
+              return withRetry(
+                async () => {
+                  const res = await fetch(`${OLLAMA_API_URL}/api/generate`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      model: modelName,
+                      prompt: fullPrompt,
+                      system: modelSystemPrompt,
+                      stream: false,
+                    }),
+                  });
+
+                  if (!res.ok) {
+                    throw new Error(`HTTP error! status: ${res.status}`);
+                  }
+
+                  return res;
+                },
+                DEFAULT_RETRY_CONFIG,
+                (log) => {
+                  retryLogs.push(log);
+                  if (!log.success && log.error) {
+                    console.error(JSON.stringify(
+                      createErrorLog(log.timestamp, log.attempt, modelName, log.error, log.nextRetryInMs)
+                    ));
+                  }
+                }
+              );
             });
 
             if (!response.ok) {
@@ -290,10 +382,22 @@ FINAL ANSWER:
               fullResponse: responseText
             };
           } catch (modelError) {
-            console.error(`Error querying model ${modelName}:`, modelError);
+            const errorMessage = (modelError as Error)?.message || String(modelError);
+            const isCircuitBreakerOpen = errorMessage.includes("Circuit breaker is OPEN");
+            
+            console.error(JSON.stringify({
+              timestamp: new Date().toISOString(),
+              model: modelName,
+              error: errorMessage,
+              severity: isCircuitBreakerOpen ? "HIGH" : "MEDIUM",
+              is_circuit_breaker_error: isCircuitBreakerOpen,
+            }));
+            
             return {
               model: modelName,
-              response: `Error: Could not get response from ${modelName}. Make sure this model is available in Ollama.`,
+              response: isCircuitBreakerOpen
+                ? `⚠️ Service temporarily unavailable (circuit breaker active). ${errorMessage}`
+                : `Error: Could not get response from ${modelName}. ${errorMessage}`,
               error: true
             };
           }
@@ -465,17 +569,39 @@ server.tool(
               ? `${conversationContext}New user question: ${question}`
               : question;
 
-            const response = await fetch(`${OLLAMA_API_URL}/api/generate`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                model: modelName,
-                prompt: fullPrompt,
-                system: modelSystemPrompt,
-                stream: false,
-              }),
+            const retryLogs: any[] = [];
+            const response = await ollamaCircuitBreaker.execute(async () => {
+              return withRetry(
+                async () => {
+                  const res = await fetch(`${OLLAMA_API_URL}/api/generate`, {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({
+                      model: modelName,
+                      prompt: fullPrompt,
+                      system: modelSystemPrompt,
+                      stream: false,
+                    }),
+                  });
+
+                  if (!res.ok) {
+                    throw new Error(`HTTP error! status: ${res.status}`);
+                  }
+
+                  return res;
+                },
+                DEFAULT_RETRY_CONFIG,
+                (log) => {
+                  retryLogs.push(log);
+                  if (!log.success && log.error) {
+                    console.error(JSON.stringify(
+                      createErrorLog(log.timestamp, log.attempt, modelName, log.error, log.nextRetryInMs)
+                    ));
+                  }
+                }
+              );
             });
 
             if (!response.ok) {
@@ -489,10 +615,22 @@ server.tool(
               systemPrompt: modelSystemPrompt
             };
           } catch (modelError) {
-            console.error(`Error querying model ${modelName}:`, modelError);
+            const errorMessage = (modelError as Error)?.message || String(modelError);
+            const isCircuitBreakerOpen = errorMessage.includes("Circuit breaker is OPEN");
+            
+            console.error(JSON.stringify({
+              timestamp: new Date().toISOString(),
+              model: modelName,
+              error: errorMessage,
+              severity: isCircuitBreakerOpen ? "HIGH" : "MEDIUM",
+              is_circuit_breaker_error: isCircuitBreakerOpen,
+            }));
+            
             return {
               model: modelName,
-              response: `Error: Could not get response from ${modelName}. Make sure this model is available in Ollama.`,
+              response: isCircuitBreakerOpen
+                ? `⚠️ Service temporarily unavailable (circuit breaker active). ${errorMessage}`
+                : `Error: Could not get response from ${modelName}. ${errorMessage}`,
               error: true
             };
           }
@@ -573,6 +711,290 @@ server.tool(
           {
             type: "text",
             text: `Error querying models: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  }
+);
+
+// Health check tool for monitoring system status
+server.tool(
+  "health-check",
+  "Check the health of the MCP server and its components (Ollama connectivity, database status, circuit breaker state)",
+  {},
+  async () => {
+    try {
+      const health: any = {
+        timestamp: new Date().toISOString(),
+        status: "healthy",
+        components: {
+          database: {
+            status: "unknown",
+            message: "",
+          },
+          ollama: {
+            status: "unknown",
+            message: "",
+            url: OLLAMA_API_URL,
+          },
+          circuitBreaker: {
+            state: ollamaCircuitBreaker.getState(),
+            stats: ollamaCircuitBreaker.getStats(),
+          },
+          conversation: {
+            sessions: Object.keys(conversationHistory).length,
+            totalMessages: Object.values(conversationHistory).reduce((sum, msgs) => sum + msgs.length, 0),
+          },
+        },
+      };
+
+      // Check database
+      try {
+        const db = getDatabase();
+        const stats = db.getStatistics();
+        health.components.database = {
+          status: "healthy",
+          message: `Database connected - ${stats.totalMessages} messages in ${stats.totalSessions} sessions`,
+          statistics: stats,
+        };
+      } catch (error) {
+        health.components.database = {
+          status: "error",
+          message: (error as Error).message,
+        };
+        health.status = "degraded";
+      }
+
+      // Check Ollama connectivity
+      try {
+        const response = await withRetry(
+          async () => {
+            const res = await fetch(`${OLLAMA_API_URL}/api/tags`, {
+              method: "GET",
+              headers: { "Content-Type": "application/json" },
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res;
+          },
+          { ...DEFAULT_RETRY_CONFIG, maxAttempts: 2 },
+          undefined
+        );
+
+        const data = await response.json() as { models?: any[] };
+        health.components.ollama = {
+          status: "healthy",
+          message: `Ollama is running with ${(data.models || []).length} models available`,
+          models_count: (data.models || []).length,
+        };
+      } catch (error) {
+        health.components.ollama = {
+          status: "error",
+          message: (error as Error).message,
+          url: OLLAMA_API_URL,
+        };
+        health.status = "degraded";
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `# System Health Check\n\n\`\`\`json\n${JSON.stringify(health, null, 2)}\n\`\`\``,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Health check error: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  }
+);
+
+// Job queue management tools
+server.tool(
+  "list-jobs",
+  "List all jobs in the queue with their status and progress",
+  {
+    status: z.enum(["pending", "running", "completed", "failed", "cancelled"]).optional().describe("Filter jobs by status (optional)"),
+  },
+  async ({ status }) => {
+    try {
+      let jobs;
+      if (status) {
+        jobs = jobQueue.getJobsByStatus(status);
+      } else {
+        jobs = jobQueue.getAllJobs();
+      }
+
+      const stats = jobQueue.getStatistics();
+
+      const formattedJobs = jobs.map((job) => ({
+        id: job.id,
+        type: job.type,
+        status: job.status,
+        progress: `${job.progress}%`,
+        createdAt: job.createdAt.toISOString(),
+        startedAt: job.startedAt?.toISOString(),
+        completedAt: job.completedAt?.toISOString(),
+        progressUpdates: job.progressUpdates.length,
+        error: job.error,
+      }));
+
+      const text = `# Job Queue Status
+
+## Statistics
+- Total Jobs: ${stats.total}
+- Pending: ${stats.pending}
+- Running: ${stats.running}
+- Completed: ${stats.completed}
+- Failed: ${stats.failed}
+- Cancelled: ${stats.cancelled}
+- Max Concurrent: ${stats.maxConcurrent}
+
+## Jobs
+${formattedJobs.length === 0 ? "No jobs found" : `\`\`\`json\n${JSON.stringify(formattedJobs, null, 2)}\n\`\`\``}`;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Error listing jobs: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  }
+);
+
+// Get job progress tool
+server.tool(
+  "get-job-progress",
+  "Get detailed progress information for a specific job",
+  {
+    job_id: z.string().describe("The ID of the job to check"),
+  },
+  async ({ job_id }) => {
+    try {
+      const job = jobQueue.getJobStatus(job_id);
+
+      if (!job) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Job not found: ${job_id}`,
+            },
+          ],
+        };
+      }
+
+      const progressText = job.progressUpdates
+        .map(
+          (update) =>
+            `- [${update.percentage}%] ${update.timestamp.toISOString()}: ${update.message}`
+        )
+        .join("\n");
+
+      const text = `# Job Progress: ${job.id}
+
+## Status
+- Type: ${job.type}
+- Status: ${job.status}
+- Progress: ${job.progress}%
+- Created: ${job.createdAt.toISOString()}
+- Started: ${job.startedAt?.toISOString() || "N/A"}
+- Completed: ${job.completedAt?.toISOString() || "N/A"}
+
+## Progress Updates
+${progressText || "No progress updates"}
+
+${job.error ? `## Error\n\`\`\`\n${job.error}\n\`\`\`` : ""}
+${job.result ? `## Result\n\`\`\`json\n${JSON.stringify(job.result, null, 2)}\n\`\`\`` : ""}`;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Error getting job progress: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  }
+);
+
+// Cancel job tool
+server.tool(
+  "cancel-job",
+  "Cancel a running or pending job",
+  {
+    job_id: z.string().describe("The ID of the job to cancel"),
+  },
+  async ({ job_id }) => {
+    try {
+      const success = jobQueue.cancelJob(job_id);
+
+      if (!success) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Could not cancel job: ${job_id} (may be already running or completed)`,
+            },
+          ],
+        };
+      }
+
+      const job = jobQueue.getJobStatus(job_id);
+      const text = `# Job Cancelled
+
+Job ID: ${job_id}
+Status: ${job?.status || "unknown"}
+Cancelled at: ${new Date().toISOString()}`;
+
+      return {
+        content: [
+          {
+            type: "text",
+            text,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Error cancelling job: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };

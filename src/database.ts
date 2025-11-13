@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const getDirname = () => path.dirname(fileURLToPath(import.meta.url));
 
 export interface ConversationMessage {
   id?: number;
@@ -21,6 +21,7 @@ export class ConversationDatabase {
   private dbPath: string;
 
   constructor(dbPath: string = 'conversations.db') {
+    const __dirname = getDirname();
     this.dbPath = path.resolve(__dirname, '..', 'data', dbPath);
     
     // Ensure data directory exists
@@ -65,6 +66,33 @@ export class ConversationDatabase {
       );
 
       CREATE INDEX IF NOT EXISTS idx_last_accessed ON session_metadata(last_accessed);
+
+      CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        progress INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        started_at TIMESTAMP,
+        completed_at TIMESTAMP,
+        input TEXT NOT NULL,
+        result TEXT,
+        error TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_job_status ON jobs(status);
+      CREATE INDEX IF NOT EXISTS idx_job_created ON jobs(created_at);
+
+      CREATE TABLE IF NOT EXISTS job_progress (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        message TEXT NOT NULL,
+        percentage INTEGER,
+        FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_job_progress_id ON job_progress(job_id);
     `);
   }
 
@@ -136,6 +164,104 @@ export class ConversationDatabase {
   public deleteSession(sessionId: string): void {
     this.db.prepare('DELETE FROM conversations WHERE session_id = ?').run(sessionId);
     this.db.prepare('DELETE FROM session_metadata WHERE session_id = ?').run(sessionId);
+  }
+
+  public saveJob(job: any): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO jobs (id, type, status, progress, created_at, started_at, completed_at, input, result, error)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      job.id,
+      job.type,
+      job.status,
+      job.progress,
+      job.createdAt.toISOString(),
+      job.startedAt ? job.startedAt.toISOString() : null,
+      job.completedAt ? job.completedAt.toISOString() : null,
+      JSON.stringify(job.input),
+      job.result ? JSON.stringify(job.result) : null,
+      job.error || null
+    );
+  }
+
+  public loadJob(jobId: string): any {
+    const stmt = this.db.prepare('SELECT * FROM jobs WHERE id = ?');
+    const row = stmt.get(jobId) as any;
+
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      type: row.type,
+      status: row.status,
+      progress: row.progress,
+      createdAt: new Date(row.created_at),
+      startedAt: row.started_at ? new Date(row.started_at) : undefined,
+      completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
+      input: JSON.parse(row.input),
+      result: row.result ? JSON.parse(row.result) : undefined,
+      error: row.error,
+      progressUpdates: this.loadJobProgress(jobId),
+    };
+  }
+
+  public saveJobProgress(jobId: string, timestamp: Date, message: string, percentage: number): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO job_progress (job_id, timestamp, message, percentage)
+      VALUES (?, ?, ?, ?)
+    `);
+
+    stmt.run(jobId, timestamp.toISOString(), message, percentage);
+  }
+
+  public loadJobProgress(jobId: string): any[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM job_progress WHERE job_id = ? ORDER BY timestamp
+    `);
+
+    const rows = stmt.all(jobId) as any[];
+    return rows.map((row) => ({
+      timestamp: new Date(row.timestamp),
+      message: row.message,
+      percentage: row.percentage,
+    }));
+  }
+
+  public getAllJobs(): any[] {
+    const stmt = this.db.prepare('SELECT * FROM jobs ORDER BY created_at DESC');
+    const rows = stmt.all() as any[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      status: row.status,
+      progress: row.progress,
+      createdAt: new Date(row.created_at),
+      startedAt: row.started_at ? new Date(row.started_at) : undefined,
+      completedAt: row.completed_at ? new Date(row.completed_at) : undefined,
+      input: JSON.parse(row.input),
+      result: row.result ? JSON.parse(row.result) : undefined,
+      error: row.error,
+      progressUpdates: this.loadJobProgress(row.id),
+    }));
+  }
+
+  public deleteJobsByAge(hoursOld: number = 24): number {
+    const cutoffTime = new Date(Date.now() - hoursOld * 60 * 60 * 1000).toISOString();
+
+    const result1 = this.db.prepare(`
+      DELETE FROM job_progress WHERE job_id IN (
+        SELECT id FROM jobs WHERE completed_at < ? AND status != 'running'
+      )
+    `).run(cutoffTime);
+
+    const result2 = this.db.prepare(`
+      DELETE FROM jobs WHERE completed_at < ? AND status != 'running'
+    `).run(cutoffTime);
+
+    return (result2.changes || 0);
   }
 
   public deleteSessionsByAge(days: number = 30): number {

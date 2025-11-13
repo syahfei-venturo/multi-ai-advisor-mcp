@@ -1,4 +1,4 @@
-import { ConversationDatabase } from '../src/database';
+import { ConversationDatabase } from '../src/database.js';
 
 describe('ConversationDatabase', () => {
   let db: ConversationDatabase;
