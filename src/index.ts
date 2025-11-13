@@ -20,7 +20,7 @@ const RETRY_CONFIG = config.jobQueue ? {
   initialDelayMs: config.jobQueue.defaultInitialDelayMs,
   maxDelayMs: config.jobQueue.defaultMaxDelayMs,
   multiplier: 2,
-  timeoutMs: 30000,
+  timeoutMs: 500000,
 } : DEFAULT_RETRY_CONFIG;
 
 // Store conversation history per session
@@ -87,15 +87,167 @@ async function executeQueryModelJob(job: Job): Promise<void> {
     const input = job.input as any;
     const { question, system_prompt, model_system_prompts, session_id, include_history } = input;
     
-    jobQueue.updateProgress(job.id, 10, 'Querying models...');
+    const modelsToQuery = DEFAULT_MODELS;
+    const currentSessionId = session_id || `session_${Date.now()}`;
+
+    if (!conversationHistory[currentSessionId]) {
+      conversationHistory[currentSessionId] = [];
+    }
+
+    jobQueue.updateProgress(job.id, 5, `Starting query for ${modelsToQuery.length} models...`);
+
+    // Query each model in parallel
+    const responses = await Promise.all(
+      modelsToQuery.map(async (modelName) => {
+        try {
+          let modelSystemPrompt = system_prompt || "You are a helpful AI assistant answering a user's question.";
+
+          if (model_system_prompts && model_system_prompts[modelName]) {
+            modelSystemPrompt = model_system_prompts[modelName];
+          } else if (!system_prompt && modelName in DEFAULT_SYSTEM_PROMPTS) {
+            modelSystemPrompt = DEFAULT_SYSTEM_PROMPTS[modelName];
+          }
+
+          jobQueue.updateProgress(job.id, 10 + (modelsToQuery.indexOf(modelName) * 5), `Querying ${modelName}...`);
+
+          let conversationContext = "";
+          if (include_history && conversationHistory[currentSessionId].length > 0) {
+            conversationContext = "Previous conversation:\n\n";
+            conversationHistory[currentSessionId].forEach(msg => {
+              const role = msg.role === "user" ? "User" : `Assistant (${msg.model || "multi-model"})`;
+              conversationContext += `${role}: ${msg.content}\n\n`;
+            });
+            conversationContext += "---\n\n";
+          }
+
+          const fullPrompt = include_history && conversationHistory[currentSessionId].length > 0
+            ? `${conversationContext}New user question: ${question}`
+            : question;
+
+          const response = await ollamaCircuitBreaker.execute(async () => {
+            return withRetry(
+              async () => {
+                const res = await fetch(`${OLLAMA_API_URL}/api/generate`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    model: modelName,
+                    prompt: fullPrompt,
+                    system: modelSystemPrompt,
+                    stream: false,
+                  }),
+                });
+
+                if (!res.ok) {
+                  throw new Error(`HTTP error! status: ${res.status}`);
+                }
+
+                return res;
+              },
+              RETRY_CONFIG,
+              undefined
+            );
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json() as OllamaResponse;
+          return {
+            model: modelName,
+            response: data.response,
+            systemPrompt: modelSystemPrompt
+          };
+        } catch (modelError) {
+          const errorMessage = (modelError as Error)?.message || String(modelError);
+          const isCircuitBreakerOpen = errorMessage.includes("Circuit breaker is OPEN");
+          
+          console.error(JSON.stringify({
+            timestamp: new Date().toISOString(),
+            model: modelName,
+            error: errorMessage,
+            severity: isCircuitBreakerOpen ? "HIGH" : "MEDIUM",
+            is_circuit_breaker_error: isCircuitBreakerOpen,
+          }));
+          
+          return {
+            model: modelName,
+            response: isCircuitBreakerOpen
+              ? `⚠️ Service temporarily unavailable (circuit breaker active). ${errorMessage}`
+              : `Error: Could not get response from ${modelName}. ${errorMessage}`,
+            error: true
+          };
+        }
+      })
+    );
+
+    jobQueue.updateProgress(job.id, 80, 'Processing responses...');
+
+    // Add user question to history
+    conversationHistory[currentSessionId].push({
+      role: "user",
+      content: question,
+    });
     
-    // Simulate execution for now - will be replaced with actual logic
-    setTimeout(() => {
-      jobQueue.completeJob(job.id, { 
-        response: 'Query executed', 
-        modelsQueried: DEFAULT_MODELS.length 
-      });
-    }, 100);
+    try {
+      const db = getDatabase();
+      db.saveMessage(
+        currentSessionId,
+        conversationHistory[currentSessionId].length - 1,
+        "user",
+        question
+      );
+    } catch (dbError) {
+      console.error("Error saving user message to database:", dbError);
+    }
+
+    // Add all model responses to history
+    responses.forEach((resp) => {
+      if (!resp.error) {
+        conversationHistory[currentSessionId].push({
+          role: "assistant",
+          content: resp.response,
+          model: resp.model,
+        });
+        
+        try {
+          const db = getDatabase();
+          db.saveMessage(
+            currentSessionId,
+            conversationHistory[currentSessionId].length - 1,
+            "assistant",
+            resp.response,
+            resp.model
+          );
+        } catch (dbError) {
+          console.error("Error saving assistant message to database:", dbError);
+        }
+      }
+    });
+
+    const MAX_HISTORY = 40;
+    if (conversationHistory[currentSessionId].length > MAX_HISTORY) {
+      conversationHistory[currentSessionId] = conversationHistory[currentSessionId].slice(-MAX_HISTORY);
+    }
+
+    const formattedText = `# Responses from Multiple Models\n\n**Session ID**: \`${currentSessionId}\`\n(Use this session ID to continue the conversation)\n\n${responses.map(resp => {
+      const roleInfo = resp.systemPrompt ?
+        `*Role: ${resp.systemPrompt.substring(0, 100)}${resp.systemPrompt.length > 100 ? '...' : ''}*\n\n` : '';
+
+      return `## ${resp.model.toUpperCase()} RESPONSE:\n${roleInfo}${resp.response}\n\n`;
+    }).join("")}\n\nConsider the perspectives above when formulating your response. You may agree or disagree with any of these models. Note that these are all compact 1-1.5B parameter models, so take that into account when evaluating their responses.`;
+
+    jobQueue.completeJob(job.id, {
+      sessionId: currentSessionId,
+      response: formattedText,
+      modelsQueried: modelsToQuery.length,
+      responsesByModel: responses
+    });
+
+    jobQueue.updateProgress(job.id, 100, 'Completed');
   } catch (error) {
     jobQueue.failJob(job.id, error instanceof Error ? error.message : String(error));
   }
@@ -107,18 +259,199 @@ async function executeQueryModelJob(job: Job): Promise<void> {
 async function executeThinkingAnalysisJob(job: Job): Promise<void> {
   try {
     const input = job.input as any;
-    const { question, system_prompt, model_system_prompts, session_id, num_thinking_steps } = input;
+    const { question, system_prompt, model_system_prompts, session_id, num_thinking_steps = 5, include_history = true } = input;
     
-    jobQueue.updateProgress(job.id, 10, 'Analyzing with thinking process...');
+    const modelsToQuery = DEFAULT_MODELS;
+    const currentSessionId = session_id || `session_${Date.now()}`;
+
+    if (!conversationHistory[currentSessionId]) {
+      conversationHistory[currentSessionId] = [];
+    }
+
+    jobQueue.updateProgress(job.id, 5, `Starting thinking analysis for ${modelsToQuery.length} models...`);
+
+    const thinkingSystemPrompt = `You are an expert analytical AI assistant. When solving problems:
+1. Break down the problem into ${num_thinking_steps} clear thinking steps
+2. Show your reasoning at each step
+3. Build on previous insights
+4. Provide a clear final answer
+
+Format your response as:
+THINKING PROCESS:
+Step 1: [thought 1]
+Reasoning: [why this matters]
+
+Step 2: [thought 2]
+Reasoning: [how it relates to step 1]
+
+... continue for ${num_thinking_steps} steps ...
+
+FINAL ANSWER:
+[Your comprehensive final response based on the thinking process]`;
+
+    // Query each model in parallel with thinking prompts
+    const responses = await Promise.all(
+      modelsToQuery.map(async (modelName) => {
+        try {
+          let modelSystemPrompt = system_prompt || thinkingSystemPrompt;
+
+          if (model_system_prompts && model_system_prompts[modelName]) {
+            modelSystemPrompt = model_system_prompts[modelName];
+          }
+
+          jobQueue.updateProgress(job.id, 10 + (modelsToQuery.indexOf(modelName) * 5), `Thinking with ${modelName}...`);
+
+          let conversationContext = "";
+          if (include_history && conversationHistory[currentSessionId].length > 0) {
+            conversationContext = "Previous conversation:\n\n";
+            conversationHistory[currentSessionId].forEach(msg => {
+              const role = msg.role === "user" ? "User" : `Assistant (${msg.model || "multi-model"})`;
+              conversationContext += `${role}: ${msg.content}\n\n`;
+            });
+            conversationContext += "---\n\n";
+          }
+
+          const fullPrompt = include_history && conversationHistory[currentSessionId].length > 0
+            ? `${conversationContext}New user question: ${question}`
+            : question;
+
+          const response = await ollamaCircuitBreaker.execute(async () => {
+            return withRetry(
+              async () => {
+                const res = await fetch(`${OLLAMA_API_URL}/api/generate`, {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    model: modelName,
+                    prompt: fullPrompt,
+                    system: modelSystemPrompt,
+                    stream: false,
+                  }),
+                });
+
+                if (!res.ok) {
+                  throw new Error(`HTTP error! status: ${res.status}`);
+                }
+
+                return res;
+              },
+              RETRY_CONFIG,
+              undefined
+            );
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const data = await response.json() as OllamaResponse;
+          const responseText = data.response;
+          const thinkingMatch = responseText.match(/THINKING PROCESS:([\s\S]*?)FINAL ANSWER:/i);
+          const finalMatch = responseText.match(/FINAL ANSWER:([\s\S]*)/i);
+
+          const thinkingContent = thinkingMatch ? thinkingMatch[1].trim() : "";
+          const finalAnswer = finalMatch ? finalMatch[1].trim() : responseText;
+
+          return {
+            model: modelName,
+            response: finalAnswer,
+            thinking: thinkingContent,
+            systemPrompt: modelSystemPrompt,
+            fullResponse: responseText
+          };
+        } catch (modelError) {
+          const errorMessage = (modelError as Error)?.message || String(modelError);
+          const isCircuitBreakerOpen = errorMessage.includes("Circuit breaker is OPEN");
+          
+          console.error(JSON.stringify({
+            timestamp: new Date().toISOString(),
+            model: modelName,
+            error: errorMessage,
+            severity: isCircuitBreakerOpen ? "HIGH" : "MEDIUM",
+            is_circuit_breaker_error: isCircuitBreakerOpen,
+          }));
+          
+          return {
+            model: modelName,
+            response: isCircuitBreakerOpen
+              ? `⚠️ Service temporarily unavailable (circuit breaker active). ${errorMessage}`
+              : `Error: Could not get response from ${modelName}. ${errorMessage}`,
+            error: true
+          };
+        }
+      })
+    );
+
+    jobQueue.updateProgress(job.id, 80, 'Processing thinking responses...');
+
+    // Add user question to history
+    conversationHistory[currentSessionId].push({
+      role: "user",
+      content: question,
+    });
     
-    // Simulate execution for now
-    setTimeout(() => {
-      jobQueue.completeJob(job.id, { 
-        response: 'Thinking analysis completed', 
-        modelsQueried: DEFAULT_MODELS.length,
-        thinkingSteps: num_thinking_steps || 5
-      });
-    }, 100);
+    try {
+      const db = getDatabase();
+      db.saveMessage(
+        currentSessionId,
+        conversationHistory[currentSessionId].length - 1,
+        "user",
+        question
+      );
+    } catch (dbError) {
+      console.error("Error saving user message to database:", dbError);
+    }
+
+    // Add all model responses to history with thinking
+    responses.forEach((resp) => {
+      if (!resp.error) {
+        conversationHistory[currentSessionId].push({
+          role: "assistant",
+          content: resp.response,
+          model: resp.model,
+          thinking: resp.thinking,
+        });
+        
+        try {
+          const db = getDatabase();
+          db.saveMessage(
+            currentSessionId,
+            conversationHistory[currentSessionId].length - 1,
+            "assistant",
+            resp.response,
+            resp.model,
+            resp.thinking
+          );
+        } catch (dbError) {
+          console.error("Error saving assistant message to database:", dbError);
+        }
+      }
+    });
+
+    const MAX_HISTORY = 40;
+    if (conversationHistory[currentSessionId].length > MAX_HISTORY) {
+      conversationHistory[currentSessionId] = conversationHistory[currentSessionId].slice(-MAX_HISTORY);
+    }
+
+    const formattedText = `# Sequential Thinking Analysis Results\n\n**Session ID**: \`${currentSessionId}\`\n(Use this session ID to continue the conversation)\n\n${responses.map(resp => {
+      const thinkingSection = resp.thinking
+        ? `### 💭 Thinking Process:\n${resp.thinking}\n\n`
+        : '';
+
+      return `## ${resp.model.toUpperCase()} RESPONSE:\n\n${thinkingSection}### Final Answer:\n${resp.response}\n\n---\n\n`;
+    }).join("")}\n\n**Summary**: Compare the thinking processes above to see how different models approach the problem. The diversity in thinking paths can reveal important perspectives and potential blind spots.`;
+
+    jobQueue.completeJob(job.id, {
+      sessionId: currentSessionId,
+      response: formattedText,
+      modelsQueried: modelsToQuery.length,
+      responsesByModel: responses,
+      thinkingSteps: num_thinking_steps
+    });
+
+    jobQueue.updateProgress(job.id, 100, 'Completed');
   } catch (error) {
     jobQueue.failJob(job.id, error instanceof Error ? error.message : String(error));
   }
@@ -130,20 +463,6 @@ interface OllamaResponse {
   created_at: string;
   response: string;
   done: boolean;
-}
-
-interface OllamaModel {
-  name: string;
-  modified_at: string;
-  size: number;
-  digest: string;
-  details: {
-    format: string;
-    family: string;
-    families: string[];
-    parameter_size: string;
-    quantization_level: string;
-  };
 }
 
 // Fix the type for system prompts with index signature
@@ -267,218 +586,56 @@ server.tool(
   },
   async ({ question, system_prompt, model_system_prompts, session_id, num_thinking_steps = 5, include_history = true }) => {
     try {
-      // Generate or use provided session ID
-      const currentSessionId = session_id || `session_${Date.now()}`;
+      // Estimate time based on thinking steps count
+      const modelsCount = DEFAULT_MODELS.length;
+      const estimatedMs = modelsCount * (3000 + num_thinking_steps * 1000); // More time for thinking
 
-      // Initialize session history if it doesn't exist
-      if (!conversationHistory[currentSessionId]) {
-        conversationHistory[currentSessionId] = [];
-      }
-
-      // Use provided models or fall back to default models from environment
-      const modelsToQuery = DEFAULT_MODELS;
-
-      debugLog(`Thinking analysis for models: ${modelsToQuery.join(", ")}`);
-      debugLog(`Session ID: ${currentSessionId}`);
-      debugLog(`Thinking steps requested: ${num_thinking_steps}`);
-
-      // Enhanced system prompt for thinking
-      const thinkingSystemPrompt = `You are an expert analytical AI assistant. When solving problems:
-1. Break down the problem into ${num_thinking_steps} clear thinking steps
-2. Show your reasoning at each step
-3. Build on previous insights
-4. Provide a clear final answer
-
-Format your response as:
-THINKING PROCESS:
-Step 1: [thought 1]
-Reasoning: [why this matters]
-
-Step 2: [thought 2]
-Reasoning: [how it relates to step 1]
-
-... continue for ${num_thinking_steps} steps ...
-
-FINAL ANSWER:
-[Your comprehensive final response based on the thinking process]`;
-
-      // Query each model in parallel with thinking prompts
-      const responses = await Promise.all(
-        modelsToQuery.map(async (modelName) => {
-          try {
-            // Determine which system prompt to use for this model
-            let modelSystemPrompt = system_prompt || thinkingSystemPrompt;
-
-            // If model-specific prompts are provided, use those instead
-            if (model_system_prompts && model_system_prompts[modelName]) {
-              modelSystemPrompt = model_system_prompts[modelName];
-            }
-
-            debugLog(`Querying ${modelName} with thinking process...`);
-
-            // Build conversation context from history
-            let conversationContext = "";
-
-            if (include_history && conversationHistory[currentSessionId].length > 0) {
-              conversationContext = "Previous conversation:\n\n";
-              conversationHistory[currentSessionId].forEach(msg => {
-                const role = msg.role === "user" ? "User" : `Assistant (${msg.model || "multi-model"})`;
-                conversationContext += `${role}: ${msg.content}\n\n`;
-              });
-              conversationContext += "---\n\n";
-              debugLog(`Conversation context length: ${conversationContext.length}`);
-            }
-
-            // Combine context with the current question
-            const fullPrompt = include_history && conversationHistory[currentSessionId].length > 0
-              ? `${conversationContext}New user question: ${question}`
-              : question;
-
-            const retryLogs: any[] = [];
-            const response = await ollamaCircuitBreaker.execute(async () => {
-              return withRetry(
-                async () => {
-                  const res = await fetch(`${OLLAMA_API_URL}/api/generate`, {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      model: modelName,
-                      prompt: fullPrompt,
-                      system: modelSystemPrompt,
-                      stream: false,
-                    }),
-                  });
-
-                  if (!res.ok) {
-                    throw new Error(`HTTP error! status: ${res.status}`);
-                  }
-
-                  return res;
-                },
-                RETRY_CONFIG,
-                (log) => {
-                  retryLogs.push(log);
-                  if (!log.success && log.error) {
-                    console.error(JSON.stringify(
-                      createErrorLog(log.timestamp, log.attempt, modelName, log.error, log.nextRetryInMs)
-                    ));
-                  }
-                }
-              );
-            });
-
-            if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json() as OllamaResponse;
-
-            // Parse thinking steps from response
-            const responseText = data.response;
-            const thinkingMatch = responseText.match(/THINKING PROCESS:([\s\S]*?)FINAL ANSWER:/i);
-            const finalMatch = responseText.match(/FINAL ANSWER:([\s\S]*)/i);
-
-            const thinkingContent = thinkingMatch ? thinkingMatch[1].trim() : "";
-            const finalAnswer = finalMatch ? finalMatch[1].trim() : responseText;
-
-            return {
-              model: modelName,
-              response: finalAnswer,
-              thinking: thinkingContent,
-              systemPrompt: modelSystemPrompt,
-              fullResponse: responseText
-            };
-          } catch (modelError) {
-            const errorMessage = (modelError as Error)?.message || String(modelError);
-            const isCircuitBreakerOpen = errorMessage.includes("Circuit breaker is OPEN");
-            
-            console.error(JSON.stringify({
-              timestamp: new Date().toISOString(),
-              model: modelName,
-              error: errorMessage,
-              severity: isCircuitBreakerOpen ? "HIGH" : "MEDIUM",
-              is_circuit_breaker_error: isCircuitBreakerOpen,
-            }));
-            
-            return {
-              model: modelName,
-              response: isCircuitBreakerOpen
-                ? `⚠️ Service temporarily unavailable (circuit breaker active). ${errorMessage}`
-                : `Error: Could not get response from ${modelName}. ${errorMessage}`,
-              error: true
-            };
-          }
-        })
+      // Submit job to queue (non-blocking)
+      const jobId = jobQueue.submitJob(
+        'analyze-thinking',
+        {
+          question,
+          system_prompt,
+          model_system_prompts,
+          session_id: session_id || `session_${Date.now()}`,
+          num_thinking_steps,
+          include_history,
+        },
+        estimatedMs,
+        modelsCount
       );
 
-      // Add user question to history
-      conversationHistory[currentSessionId].push({
-        role: "user",
-        content: question,
-      });
-      
-      // Save user message to database
-      try {
-        const db = getDatabase();
-        db.saveMessage(
-          currentSessionId,
-          conversationHistory[currentSessionId].length - 1,
-          "user",
-          question
-        );
-      } catch (dbError) {
-        console.error("Error saving user message to database:", dbError);
-      }
+      debugLog(`Thinking analysis job submitted: ${jobId}`);
 
-      // Add all model responses to history with thinking
-      responses.forEach((resp, index) => {
-        if (!resp.error) {
-          conversationHistory[currentSessionId].push({
-            role: "assistant",
-            content: resp.response,
-            model: resp.model,
-            thinking: resp.thinking,
-          });
-          
-          // Save assistant message to database with thinking
-          try {
-            const db = getDatabase();
-            db.saveMessage(
-              currentSessionId,
-              conversationHistory[currentSessionId].length - 1,
-              "assistant",
-              resp.response,
-              resp.model,
-              resp.thinking
-            );
-          } catch (dbError) {
-            console.error("Error saving assistant message to database:", dbError);
-          }
-        }
-      });
+      const responseText = `# 🧠 Sequential Thinking Analysis Submitted (Job ID: \`${jobId}\`)
 
-      // Keep history manageable
-      const MAX_HISTORY = 40;
-      if (conversationHistory[currentSessionId].length > MAX_HISTORY) {
-        conversationHistory[currentSessionId] = conversationHistory[currentSessionId].slice(-MAX_HISTORY);
-      }
+## Progress Information
+- **Status**: Pending
+- **Models to Analyze**: ${modelsCount}
+- **Thinking Steps per Model**: ${num_thinking_steps}
+- **Estimated Time**: ~${(estimatedMs / 1000).toFixed(1)}s
+- **Job ID**: \`${jobId}\`
 
-      // Format the response with thinking process visible
-      const formattedText = `# Sequential Thinking Analysis Results\n\n**Session ID**: \`${currentSessionId}\`\n(Use this session ID to continue the conversation)\n\n${responses.map(resp => {
-        const thinkingSection = resp.thinking
-          ? `### 💭 Thinking Process:\n${resp.thinking}\n\n`
-          : '';
+## Next Steps
+1. Use **get-job-progress** with job ID \`${jobId}\` to check status and see live progress
+2. Wait for status to show "completed"
+3. Then use **get-job-result** with job ID \`${jobId}\` to retrieve the full thinking analysis
 
-        return `## ${resp.model.toUpperCase()} RESPONSE:\n\n${thinkingSection}### Final Answer:\n${resp.response}\n\n---\n\n`;
-      }).join("")}\n\n**Summary**: Compare the thinking processes above to see how different models approach the problem. The diversity in thinking paths can reveal important perspectives and potential blind spots.`;
+## Example Usage
+\`\`\`
+get-job-progress(job_id="${jobId}")
+\`\`\`
+
+Once the job is completed, you can fetch results with:
+\`\`\`
+get-job-result(job_id="${jobId}")
+\`\`\``;
 
       return {
         content: [
           {
             type: "text",
-            text: formattedText,
+            text: responseText,
           },
         ],
       };
@@ -489,7 +646,7 @@ FINAL ANSWER:
         content: [
           {
             type: "text",
-            text: `Error analyzing with thinking: ${error instanceof Error ? error.message : String(error)}`,
+            text: `Error submitting thinking analysis job: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
@@ -503,7 +660,6 @@ server.tool(
   "Query multiple AI models via Ollama and get their responses to compare perspectives",
   {
     question: z.string().describe("The question to ask all models"),
-    // models: z.array(z.string()).optional().describe("Array of model names to query (defaults to configured models)"),
     system_prompt: z.string().optional().describe("Optional system prompt to provide context to all models (overridden by model_system_prompts if provided)"),
     model_system_prompts: z.record(z.string()).optional().describe("Optional object mapping model names to specific system prompts"),
     session_id: z.string().optional().describe("Session ID for conversation memory. Use the same ID to continue a conversation"),
@@ -512,203 +668,55 @@ server.tool(
   },
   async ({ question, system_prompt, model_system_prompts, session_id, include_history = true, enable_thinking = false }) => {
     try {
-      // If thinking is enabled, delegate to the thinking tool
-      if (enable_thinking) {
-        const thinkingToolParams = {
+      // Estimate time based on models count and thinking mode
+      const modelsCount = DEFAULT_MODELS.length;
+      const estimatedMs = enable_thinking ? (modelsCount * 15000) : (modelsCount * 10000); // 10-15 seconds per model
+
+      // Submit job to queue (non-blocking)
+      const jobId = jobQueue.submitJob(
+        'query-models',
+        {
           question,
           system_prompt,
           model_system_prompts,
-          session_id,
+          session_id: session_id || `session_${Date.now()}`,
           include_history,
-        };
-
-        // We'll implement this by directly calling the thinking logic
-        debugLog("Thinking mode enabled, redirecting to sequential thinking analysis");
-      }
-
-      // Generate or use provided session ID
-      const currentSessionId = session_id || `session_${Date.now()}`;
-
-      // Initialize session history if it doesn't exist
-      if (!conversationHistory[currentSessionId]) {
-        conversationHistory[currentSessionId] = [];
-      }
-
-      // Use provided models or fall back to default models from environment
-      const modelsToQuery = DEFAULT_MODELS;
-
-      debugLog(`Using models: ${modelsToQuery.join(", ")}`);
-      debugLog(`Session ID: ${currentSessionId}`);
-      debugLog(`History length: ${conversationHistory[currentSessionId].length}`);
-      debugLog(`Thinking mode: ${enable_thinking}`);
-
-      // Query each model in parallel
-      const responses = await Promise.all(
-        modelsToQuery.map(async (modelName) => {
-          try {
-            // Determine which system prompt to use for this model
-            let modelSystemPrompt = system_prompt || "You are a helpful AI assistant answering a user's question.";
-
-            // If model-specific prompts are provided, use those instead
-            if (model_system_prompts && model_system_prompts[modelName]) {
-              modelSystemPrompt = model_system_prompts[modelName];
-            }
-            // If no prompt is specified at all, use our default role-specific prompts if available
-            else if (!system_prompt && modelName in DEFAULT_SYSTEM_PROMPTS) {
-              modelSystemPrompt = DEFAULT_SYSTEM_PROMPTS[modelName];
-            }
-
-            debugLog(`Querying ${modelName} with system prompt: ${modelSystemPrompt.substring(0, 50)}...`);
-
-            // Build conversation context from history
-            let conversationContext = "";
-
-            if (include_history && conversationHistory[currentSessionId].length > 0) {
-              conversationContext = "Previous conversation:\n\n";
-              conversationHistory[currentSessionId].forEach(msg => {
-                const role = msg.role === "user" ? "User" : `Assistant (${msg.model || "multi-model"})`;
-                conversationContext += `${role}: ${msg.content}\n\n`;
-              });
-              conversationContext += "---\n\n";
-              debugLog(`Conversation context length: ${conversationContext.length}`);
-            }
-
-            // Combine context with the current question
-            const fullPrompt = include_history && conversationHistory[currentSessionId].length > 0
-              ? `${conversationContext}New user question: ${question}`
-              : question;
-
-            const retryLogs: any[] = [];
-            const response = await ollamaCircuitBreaker.execute(async () => {
-              return withRetry(
-                async () => {
-                  const res = await fetch(`${OLLAMA_API_URL}/api/generate`, {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                    },
-                    body: JSON.stringify({
-                      model: modelName,
-                      prompt: fullPrompt,
-                      system: modelSystemPrompt,
-                      stream: false,
-                    }),
-                  });
-
-                  if (!res.ok) {
-                    throw new Error(`HTTP error! status: ${res.status}`);
-                  }
-
-                  return res;
-                },
-                RETRY_CONFIG,
-                (log) => {
-                  retryLogs.push(log);
-                  if (!log.success && log.error) {
-                    console.error(JSON.stringify(
-                      createErrorLog(log.timestamp, log.attempt, modelName, log.error, log.nextRetryInMs)
-                    ));
-                  }
-                }
-              );
-            });
-
-            if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json() as OllamaResponse;
-            return {
-              model: modelName,
-              response: data.response,
-              systemPrompt: modelSystemPrompt
-            };
-          } catch (modelError) {
-            const errorMessage = (modelError as Error)?.message || String(modelError);
-            const isCircuitBreakerOpen = errorMessage.includes("Circuit breaker is OPEN");
-            
-            console.error(JSON.stringify({
-              timestamp: new Date().toISOString(),
-              model: modelName,
-              error: errorMessage,
-              severity: isCircuitBreakerOpen ? "HIGH" : "MEDIUM",
-              is_circuit_breaker_error: isCircuitBreakerOpen,
-            }));
-            
-            return {
-              model: modelName,
-              response: isCircuitBreakerOpen
-                ? `⚠️ Service temporarily unavailable (circuit breaker active). ${errorMessage}`
-                : `Error: Could not get response from ${modelName}. ${errorMessage}`,
-              error: true
-            };
-          }
-        })
+          enable_thinking,
+        },
+        estimatedMs,
+        modelsCount
       );
 
-      // Add user question to history
-      conversationHistory[currentSessionId].push({
-        role: "user",
-        content: question,
-      });
-      
-      // Save user message to database
-      try {
-        const db = getDatabase();
-        db.saveMessage(
-          currentSessionId,
-          conversationHistory[currentSessionId].length - 1,
-          "user",
-          question
-        );
-      } catch (dbError) {
-        console.error("Error saving user message to database:", dbError);
-      }
+      debugLog(`Query job submitted: ${jobId}`);
 
-      // Add all model responses to history
-      responses.forEach((resp, index) => {
-        if (!resp.error) {
-          conversationHistory[currentSessionId].push({
-            role: "assistant",
-            content: resp.response,
-            model: resp.model,
-          });
-          
-          // Save assistant message to database
-          try {
-            const db = getDatabase();
-            db.saveMessage(
-              currentSessionId,
-              conversationHistory[currentSessionId].length - 1,
-              "assistant",
-              resp.response,
-              resp.model
-            );
-          } catch (dbError) {
-            console.error("Error saving assistant message to database:", dbError);
-          }
-        }
-      });
+      const responseText = `# ⏳ Query Submitted (Job ID: \`${jobId}\`)
 
-      // Keep history manageable (keep last 20 exchanges to prevent memory issues)
-      const MAX_HISTORY = 40; // 20 exchanges * 2 (user + assistant)
-      if (conversationHistory[currentSessionId].length > MAX_HISTORY) {
-        conversationHistory[currentSessionId] = conversationHistory[currentSessionId].slice(-MAX_HISTORY);
-      }
+## Progress Information
+- **Status**: Pending
+- **Models to Query**: ${modelsCount}
+- **Estimated Time**: ~${(estimatedMs / 1000).toFixed(1)}s
+- **Job ID**: \`${jobId}\`
 
-      // Format the response in a way that's easy for Claude to analyze
-      const formattedText = `# Responses from Multiple Models\n\n**Session ID**: \`${currentSessionId}\`\n(Use this session ID to continue the conversation)\n\n${enable_thinking ? '✨ **Thinking mode enabled** - Models used step-by-step reasoning\n\n' : ''}${responses.map(resp => {
-        const roleInfo = resp.systemPrompt ?
-          `*Role: ${resp.systemPrompt.substring(0, 100)}${resp.systemPrompt.length > 100 ? '...' : ''}*\n\n` : '';
+## Next Steps
+1. Use **get-job-progress** with job ID \`${jobId}\` to check status
+2. Wait for status to show "completed"
+3. Then use **get-job-result** with job ID \`${jobId}\` to retrieve the full results
 
-        return `## ${resp.model.toUpperCase()} RESPONSE:\n${roleInfo}${resp.response}\n\n`;
-      }).join("")}\n\nConsider the perspectives above when formulating your response. You may agree or disagree with any of these models. Note that these are all compact 1-1.5B parameter models, so take that into account when evaluating their responses.`;
+## Example Usage
+\`\`\`
+get-job-progress(job_id="${jobId}")
+\`\`\`
+
+Once the job is completed, you can fetch results with:
+\`\`\`
+get-job-result(job_id="${jobId}")
+\`\`\``;
 
       return {
         content: [
           {
             type: "text",
-            text: formattedText,
+            text: responseText,
           },
         ],
       };
@@ -719,7 +727,7 @@ server.tool(
         content: [
           {
             type: "text",
-            text: `Error querying models: ${error instanceof Error ? error.message : String(error)}`,
+            text: `Error submitting query job: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };
@@ -896,7 +904,7 @@ ${formattedJobs.length === 0 ? "No jobs found" : `\`\`\`json\n${JSON.stringify(f
   }
 );
 
-// Get job progress tool
+// Get job progress tool with detailed info
 server.tool(
   "get-job-progress",
   "Get detailed progress information for a specific job",
@@ -925,21 +933,42 @@ server.tool(
         )
         .join("\n");
 
-      const text = `# Job Progress: ${job.id}
+      const timeElapsedMs = job.startedAt ? Date.now() - job.startedAt.getTime() : 0;
+      const timeElapsedSec = (timeElapsedMs / 1000).toFixed(1);
+      const estimatedRemainingMs = job.estimatedCompletionMs || 0;
+      const estimatedRemainingSec = (estimatedRemainingMs / 1000).toFixed(1);
+
+      let statusEmoji = '⏳';
+      if (job.status === 'completed') statusEmoji = '✅';
+      else if (job.status === 'running') statusEmoji = '🔄';
+      else if (job.status === 'failed') statusEmoji = '❌';
+      else if (job.status === 'cancelled') statusEmoji = '⛔';
+
+      const text = `# ${statusEmoji} Job Progress: ${job.id}
 
 ## Status
-- Type: ${job.type}
-- Status: ${job.status}
-- Progress: ${job.progress}%
-- Created: ${job.createdAt.toISOString()}
-- Started: ${job.startedAt?.toISOString() || "N/A"}
-- Completed: ${job.completedAt?.toISOString() || "N/A"}
+- **Type**: ${job.type}
+- **Status**: ${job.status}
+- **Progress**: ${job.progress}%
+- **Models**: ${job.modelCount || 'N/A'}
+
+## Time Information
+- **Created**: ${job.createdAt.toISOString()}
+- **Started**: ${job.startedAt?.toISOString() || "Not yet started"}
+- **Completed**: ${job.completedAt?.toISOString() || "In progress"}
+- **Elapsed Time**: ${timeElapsedSec}s
+- **Estimated Remaining**: ~${estimatedRemainingSec}s
+- **Total Estimated**: ~${((job.estimatedTotalMs || 0) / 1000).toFixed(1)}s
 
 ## Progress Updates
-${progressText || "No progress updates"}
+${progressText || "No progress updates yet"}
 
-${job.error ? `## Error\n\`\`\`\n${job.error}\n\`\`\`` : ""}
-${job.result ? `## Result\n\`\`\`json\n${JSON.stringify(job.result, null, 2)}\n\`\`\`` : ""}`;
+${job.error ? `## ❌ Error\n\`\`\`\n${job.error}\n\`\`\`` : ''}
+
+${job.status === 'completed' ? `
+## ✅ Job Completed!
+Use \`get-job-result\` with job ID \`${job.id}\` to retrieve the results.
+` : ''}`;
 
       return {
         content: [
@@ -956,6 +985,100 @@ ${job.result ? `## Result\n\`\`\`json\n${JSON.stringify(job.result, null, 2)}\n\
           {
             type: "text",
             text: `Error getting job progress: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      };
+    }
+  }
+);
+
+// Get job result tool (new tool for retrieving completed job results)
+server.tool(
+  "get-job-result",
+  "Get the result of a completed job",
+  {
+    job_id: z.string().describe("The ID of the completed job"),
+  },
+  async ({ job_id }) => {
+    try {
+      const job = jobQueue.getJobStatus(job_id);
+
+      if (!job) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `Job not found: ${job_id}`,
+            },
+          ],
+        };
+      }
+
+      if (job.status === 'pending' || job.status === 'running') {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `⏳ Job is still in progress (Status: ${job.status}, Progress: ${job.progress}%)\n\nUse \`get-job-progress\` to check the current status:\n\`\`\`\nget-job-progress(job_id="${job_id}")\n\`\`\``,
+            },
+          ],
+        };
+      }
+
+      if (job.status === 'failed') {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: `❌ Job failed with error:\n\n${job.error || 'Unknown error'}`,
+            },
+          ],
+        };
+      }
+
+      if (job.status === 'cancelled') {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `⛔ Job was cancelled`,
+            },
+          ],
+        };
+      }
+
+      // Job is completed
+      if (job.result) {
+        const result = job.result as any;
+        const text = result.response || JSON.stringify(result, null, 2);
+
+        return {
+          content: [
+            {
+              type: "text",
+              text: text,
+            },
+          ],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Job ${job_id} completed but no result found`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: `Error getting job result: ${error instanceof Error ? error.message : String(error)}`,
           },
         ],
       };

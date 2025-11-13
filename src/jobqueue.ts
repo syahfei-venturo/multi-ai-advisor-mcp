@@ -24,6 +24,9 @@ export interface Job {
   result?: unknown;
   error?: string;
   progressUpdates: ProgressUpdate[];
+  estimatedCompletionMs?: number; // Estimated time to completion in ms
+  estimatedTotalMs?: number; // Total estimated time in ms
+  modelCount?: number; // Number of models being queried
 }
 
 /**
@@ -53,7 +56,9 @@ export class JobQueue {
    */
   submitJob(
     type: 'query-models' | 'analyze-thinking',
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
+    estimatedTotalMs?: number,
+    modelCount?: number
   ): string {
     const job: Job = {
       id: generateId(),
@@ -63,6 +68,9 @@ export class JobQueue {
       createdAt: new Date(),
       input,
       progressUpdates: [],
+      estimatedTotalMs: estimatedTotalMs || 30000, // Default 30 seconds
+      estimatedCompletionMs: estimatedTotalMs || 30000,
+      modelCount: modelCount || 3,
     };
 
     this.pending.push(job);
@@ -89,7 +97,7 @@ export class JobQueue {
   }
 
   /**
-   * Update job progress
+   * Update job progress with automatic estimation
    */
   updateProgress(jobId: string, progress: number, message: string): void {
     const job = this.running.get(jobId);
@@ -100,6 +108,19 @@ export class JobQueue {
         message,
         percentage: job.progress,
       });
+      
+      // Calculate estimated time to completion
+      if (job.startedAt && job.estimatedTotalMs) {
+        const elapsedMs = Date.now() - job.startedAt.getTime();
+        const estimatedTotalMs = job.estimatedTotalMs;
+        const completedRatio = progress / 100;
+        
+        if (completedRatio > 0.01) { // Only estimate after 1% progress
+          const estimatedTotalBasedOnProgress = elapsedMs / completedRatio;
+          job.estimatedTotalMs = Math.max(estimatedTotalMs, estimatedTotalBasedOnProgress);
+          job.estimatedCompletionMs = Math.max(0, job.estimatedTotalMs - elapsedMs);
+        }
+      }
     }
   }
 
@@ -197,6 +218,32 @@ export class JobQueue {
     jobs.push(...this.running.values());
     jobs.push(...this.completed.values());
     return jobs;
+  }
+
+  /**
+   * Get job details for quick retrieval
+   */
+  getJobDetails(jobId: string): {
+    id: string;
+    status: string;
+    progress: number;
+    estimatedCompletionMs?: number;
+    modelCount?: number;
+    result?: unknown;
+    error?: string;
+  } | null {
+    const job = this.getJobStatus(jobId);
+    if (!job) return null;
+
+    return {
+      id: job.id,
+      status: job.status,
+      progress: job.progress,
+      estimatedCompletionMs: job.estimatedCompletionMs,
+      modelCount: job.modelCount,
+      result: job.result,
+      error: job.error,
+    };
   }
 
   /**
