@@ -87,12 +87,14 @@ export class ConversationRepository implements IConversationRepository {
     };
   }
 
-  getAllSessions(): string[] {
-    const stmt = this.db.prepare(
-      'SELECT DISTINCT session_id FROM conversations ORDER BY session_id'
-    );
-    const results = stmt.all() as Array<{ session_id: string }>;
-    return results.map((r) => r.session_id);
+  getAllSessions(): Array<{ session_id: string; last_updated: string }> {
+    const stmt = this.db.prepare(`
+      SELECT c.session_id, MAX(c.created_at) as last_updated
+      FROM conversations c
+      GROUP BY c.session_id
+      ORDER BY last_updated DESC
+    `);
+    return stmt.all() as Array<{ session_id: string; last_updated: string }>;
   }
 
   getSessionMetadata(sessionId: string): any {
@@ -149,5 +151,23 @@ export class ConversationRepository implements IConversationRepository {
     `);
 
     stmt.run(sessionId, messageCount);
+  }
+
+  // Web UI support methods
+  getHistory(sessionId: string): ConversationMessageRecord[] {
+    return this.loadSessionHistory(sessionId);
+  }
+
+  getAllConversations(): ConversationMessageRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM conversations
+      ORDER BY timestamp DESC
+      LIMIT 100
+    `);
+    return stmt.all() as ConversationMessageRecord[];
+  }
+
+  clearHistory(sessionId: string): void {
+    this.deleteSession(sessionId);
   }
 }

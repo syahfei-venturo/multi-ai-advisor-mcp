@@ -24,15 +24,21 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.7.0",
     "better-sqlite3": "^9.2.2",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "express": "^5.1.0",
     "node-fetch": "^3.3.2",
+    "ws": "^8.18.3",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.8",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.5",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.13.13",
     "@types/node-fetch": "^2.6.12",
+    "@types/ws": "^8.18.1",
     "jest": "^30.2.0",
     "ts-jest": "^29.4.5",
     "typescript": "^5.8.2"

@@ -19,4 +19,8 @@ export interface IJobRepository {
   }>;
 
   deleteJobsByAge(hoursOld: number): number;
+
+  // Web UI support methods
+  getJob(jobId: string): Job | null;
+  updateJobStatus(jobId: string, status: string): void;
 }

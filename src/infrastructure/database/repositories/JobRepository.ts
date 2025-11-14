@@ -124,4 +124,17 @@ export class JobRepository implements IJobRepository {
 
     return result2.changes || 0;
   }
+
+  // Web UI support methods
+  getJob(jobId: string): Job | null {
+    return this.loadJob(jobId);
+  }
+
+  updateJobStatus(jobId: string, status: string): void {
+    const stmt = this.db.prepare(`
+      UPDATE jobs SET status = ?, completed_at = ? WHERE id = ?
+    `);
+    const completedAt = status === 'cancelled' ? new Date().toISOString() : null;
+    stmt.run(status, completedAt, jobId);
+  }
 }

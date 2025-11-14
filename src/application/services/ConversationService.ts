@@ -129,10 +129,10 @@ export class ConversationService {
   loadExistingSessions(): void {
     const sessions = this.conversationRepo.getAllSessions();
 
-    for (const sessionId of sessions) {
-      const messages = this.conversationRepo.loadSessionHistory(sessionId);
+    for (const session of sessions) {
+      const messages = this.conversationRepo.loadSessionHistory(session.session_id);
       this.conversationHistory.set(
-        sessionId,
+        session.session_id,
         messages.map((msg) => ({
           role: msg.role as 'user' | 'assistant',
           content: msg.content,

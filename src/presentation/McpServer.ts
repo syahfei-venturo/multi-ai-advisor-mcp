@@ -6,6 +6,7 @@ import { ConversationRepository } from '../infrastructure/database/repositories/
 import { JobRepository } from '../infrastructure/database/repositories/JobRepository.js';
 import { OllamaApiClient } from '../infrastructure/http/OllamaApiClient.js';
 import { JobQueue } from '../infrastructure/queue/JobQueue.js';
+import { WebServer } from '../infrastructure/web/WebServer.js';
 import { ConversationService } from '../application/services/ConversationService.js';
 import { OllamaService } from '../application/services/OllamaService.js';
 import { JobService } from '../application/services/JobService.js';
@@ -24,6 +25,9 @@ export class McpServer {
   private ollamaService: OllamaService;
   private jobService: JobService;
   private ollamaClient: OllamaApiClient;
+  private webServer: WebServer | null = null;
+  private conversationRepo: ConversationRepository;
+  private jobRepo: JobRepository;
   private dbConnection: ReturnType<typeof getDatabaseConnection>;
   private debugLog: (message: string) => void;
 
@@ -41,8 +45,8 @@ export class McpServer {
     const db = this.dbConnection.getDatabase();
 
     // Initialize repositories
-    const conversationRepo = new ConversationRepository(db);
-    const jobRepo = new JobRepository(db);
+    this.conversationRepo = new ConversationRepository(db);
+    this.jobRepo = new JobRepository(db);
 
     // Initialize infrastructure
     const retryConfig = config.jobQueue
@@ -67,7 +71,7 @@ export class McpServer {
     );
 
     // Initialize services
-    this.conversationService = new ConversationService(conversationRepo);
+    this.conversationService = new ConversationService(this.conversationRepo);
     this.ollamaService = new OllamaService(
       this.ollamaClient,
       this.conversationService,
@@ -75,7 +79,16 @@ export class McpServer {
       config.prompts,
       config.templates
     );
-    this.jobService = new JobService(jobQueue, jobRepo);
+    this.jobService = new JobService(jobQueue, this.jobRepo);
+
+    // Initialize Web Server if enabled
+    if (config.webUI?.enabled) {
+      this.webServer = new WebServer(
+        this.conversationRepo,
+        this.jobRepo,
+        config.webUI.port || 3000
+      );
+    }
 
     // Create MCP server
     this.server = new BaseMcpServer({
@@ -170,6 +183,15 @@ export class McpServer {
     await this.loadExistingSessions();
     await this.restoreIncompleteJobs();
 
+    // Start Web Server if enabled
+    if (this.webServer) {
+      try {
+        await this.webServer.start();
+      } catch (error) {
+        console.error(`⚠️ Failed to start Web UI:`, error);
+      }
+    }
+
     // Connect server transport
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
@@ -179,9 +201,33 @@ export class McpServer {
   /**
    * Graceful shutdown
    */
-  shutdown() {
+  async shutdown() {
     console.error('\n👋 Shutting down gracefully...');
+
+    // Stop Web Server
+    if (this.webServer) {
+      await this.webServer.stop();
+    }
+
     closeDatabase();
     process.exit(0);
+  }
+
+  /**
+   * Notify web UI of conversation updates
+   */
+  notifyConversationUpdate(sessionId: string) {
+    if (this.webServer) {
+      this.webServer.notifyConversationUpdate(sessionId);
+    }
+  }
+
+  /**
+   * Notify web UI of job updates
+   */
+  notifyJobUpdate(jobId: string, status: string) {
+    if (this.webServer) {
+      this.webServer.notifyJobUpdate(jobId, status);
+    }
   }
 }

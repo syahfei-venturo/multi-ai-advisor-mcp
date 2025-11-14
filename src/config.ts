@@ -36,6 +36,10 @@ export interface Config {
     defaultInitialDelayMs: number;
     defaultMaxDelayMs: number;
   };
+  webUI?: {
+    enabled: boolean;
+    port: number;
+  };
 }
 
 // Zod validation schema
@@ -60,6 +64,10 @@ const ConfigSchema = z.object({
     defaultRetryAttempts: z.number().int().min(1).max(10),
     defaultInitialDelayMs: z.number().int().min(100).max(10000),
     defaultMaxDelayMs: z.number().int().min(1000).max(60000),
+  }).optional(),
+  webUI: z.object({
+    enabled: z.boolean(),
+    port: z.number().int().min(1024).max(65535),
   }).optional(),
 });
 
@@ -229,6 +237,12 @@ export function getConfig(): Config {
     maxThinkingSteps: getNumber('max-thinking-steps', 'MAX_THINKING_STEPS', 4),
   };
 
+  // Web UI configuration
+  const webUIConfig = {
+    enabled: getBoolean('web-ui', 'WEB_UI_ENABLED', true),
+    port: getNumber('web-ui-port', 'WEB_UI_PORT', 3000),
+  };
+
   const rawConfig = {
     server: {
       name: serverName,
@@ -243,6 +257,7 @@ export function getConfig(): Config {
     templates,
     thinking: thinkingConfig,
     jobQueue: jobQueueConfig,
+    webUI: webUIConfig,
   };
 
   // Validate configuration
@@ -296,7 +311,17 @@ export function printConfigInfo(config: Config): void {
     console.error(`  Default Thinking Steps: ${config.thinking.defaultThinkingSteps}`);
     console.error(`  Max Thinking Steps: ${config.thinking.maxThinkingSteps}\n`);
   }
-  
+
+  if (config.webUI) {
+    console.error('🌐 Web UI Configuration:');
+    console.error(`  Enabled: ${config.webUI.enabled ? '✓ Yes' : '✗ No'}`);
+    if (config.webUI.enabled) {
+      console.error(`  Port: ${config.webUI.port}`);
+      console.error(`  URL: http://localhost:${config.webUI.port}`);
+    }
+    console.error();
+  }
+
   console.error('💭 System Prompts:');
   Object.entries(config.prompts).forEach(([model, prompt]) => {
     const template = config.templates?.[model] || 'legacy';
@@ -325,7 +350,9 @@ export function printConfigInfo(config: Config): void {
   console.error('  --retry-initial-delay NUM       Initial retry delay in ms (default: 2000)');
   console.error('  --retry-max-delay NUM           Max retry delay in ms (default: 10000)');
   console.error('  --default-thinking-steps NUM    Default thinking steps (default: 3)');
-  console.error('  --max-thinking-steps NUM        Max thinking steps allowed (default: 4)\n');
+  console.error('  --max-thinking-steps NUM        Max thinking steps allowed (default: 4)');
+  console.error('  --web-ui                        Enable Web UI (default: true)');
+  console.error('  --web-ui-port NUM               Web UI port (default: 3000)\n');
   
   console.error('📚 Examples:');
   console.error('  # Basic start with defaults');
