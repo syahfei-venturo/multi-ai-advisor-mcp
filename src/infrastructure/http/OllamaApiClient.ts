@@ -41,13 +41,23 @@ export class OllamaApiClient implements IOllamaClient {
               system: systemPrompt,
               stream: false,
               options: {
-                num_gpu: 1, // Use GPU acceleration (RTX 2060 SUPER - 8GB VRAM)
-                num_ctx: 4096, // Context window size for longer conversations
+                // GPU Configuration (RTX 2060 SUPER - 8GB VRAM)
+                num_gpu: 1, // Use GPU acceleration
                 num_thread: 8, // CPU threads for hybrid processing
+
+                // Memory & Performance (optimized for 8GB VRAM)
+                num_ctx: 4096, // Context window size for longer conversations
+                num_batch: 512, // Batch size (safe for 8GB VRAM)
+                num_predict: 512, // Max tokens in response (allow longer answers)
+
+                // Quality Control
                 temperature: 0.7, // Balanced creativity
                 top_k: 40, // Sampling parameter
                 top_p: 0.9, // Nucleus sampling
                 repeat_penalty: 1.1, // Prevent repetition
+
+                // Model Management
+                keep_alive: '10m', // Keep model in memory for 10 minutes
               },
             }),
           });
