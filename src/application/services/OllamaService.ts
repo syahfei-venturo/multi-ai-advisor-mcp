@@ -63,14 +63,19 @@ export class OllamaService {
           // Format prompt using template
           const payload = template.formatPrompt(history, question, modelSystemPrompt);
 
-          // Call appropriate API endpoint based on payload type
-          const data = payload.type === 'chat'
-            ? await this.ollamaClient.chat(modelName, payload.messages)
-            : await this.ollamaClient.generate(modelName, payload.prompt, payload.system);
+          // Call appropriate API endpoint based on payload type and extract response
+          let responseText: string;
+          if (payload.type === 'chat') {
+            const data = await this.ollamaClient.chat(modelName, payload.messages);
+            responseText = data.message?.content || '';
+          } else {
+            const data = await this.ollamaClient.generate(modelName, payload.prompt, payload.system);
+            responseText = data.response || '';
+          }
 
           return {
             model: modelName,
-            response: data.response,
+            response: responseText,
             systemPrompt: modelSystemPrompt,
           };
         } catch (modelError) {

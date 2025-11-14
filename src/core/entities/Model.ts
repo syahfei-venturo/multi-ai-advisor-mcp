@@ -19,7 +19,11 @@ export interface ModelResponse {
 export interface OllamaResponse {
   model: string;
   created_at: string;
-  response: string;
+  response?: string;  // untuk generate API
+  message?: {         // untuk chat API
+    role: string;
+    content: string;
+  };
   done: boolean;
 }
 
