@@ -1,30 +1,21 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { StatsCards } from '@/components/StatsCards';
-import { ConnectionStatus } from '@/components/ConnectionStatus';
-import { SessionsList } from '@/components/SessionsList';
-import { ConversationPanel } from '@/components/ConversationPanel';
-import { JobsList } from '@/components/JobsList';
+import { ChatSidebar } from '@/components/ChatSidebar';
+import { WelcomeScreen } from '@/components/WelcomeScreen';
+import { ChatInterface } from '@/components/ChatInterface';
+import { SystemMonitor } from '@/components/SystemMonitor';
 import { useWebSocket } from '@/lib/useWebSocket';
 import { api } from '@/lib/api';
-import type { Stats, Session, ConversationMessage, Job } from '@/types';
+import type { Session, ConversationMessage, Stats, Job } from '@/types';
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<Stats | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [stats, setStats] = useState<Stats | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
-
-  const loadStats = useCallback(async () => {
-    try {
-      const data = await api.getStats();
-      setStats(data);
-    } catch (error) {
-      console.error('Failed to load stats:', error);
-    }
-  }, []);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -44,6 +35,15 @@ export default function Dashboard() {
     }
   }, []);
 
+  const loadStats = useCallback(async () => {
+    try {
+      const data = await api.getStats();
+      setStats(data);
+    } catch (error) {
+      console.error('Failed to load stats:', error);
+    }
+  }, []);
+
   const loadJobs = useCallback(async () => {
     try {
       const data = await api.getJobs();
@@ -58,22 +58,58 @@ export default function Dashboard() {
     loadConversations(sessionId);
   }, [loadConversations]);
 
-  const handleClearConversation = useCallback(async () => {
-    if (!selectedSessionId) return;
+  const handleNewChat = useCallback(() => {
+    setSelectedSessionId(null);
+    setConversations([]);
+  }, []);
 
-    if (!confirm('Are you sure you want to clear this conversation?')) {
-      return;
-    }
+  const handleSendMessage = useCallback(async (message: string) => {
+    if (!message.trim()) return;
 
+    setIsLoading(true);
     try {
-      await api.clearConversation(selectedSessionId);
-      setConversations([]);
+      // Create a new session if none selected
+      const sessionId = selectedSessionId || `session-${Date.now()}`;
+
+      // Add user message to conversations
+      const userMessage: ConversationMessage = {
+        id: Date.now(),
+        session_id: sessionId,
+        message_index: conversations.length,
+        role: 'user',
+        content: message,
+        created_at: new Date().toISOString()
+      };
+
+      setConversations(prev => [...prev, userMessage]);
+
+      // Here you would call your API to send the message
+      // For now, we'll simulate a response
+      setTimeout(() => {
+        const assistantMessage: ConversationMessage = {
+          id: Date.now() + 1,
+          session_id: sessionId,
+          message_index: conversations.length + 1,
+          role: 'assistant',
+          content: 'This is a simulated response. Connect to your MCP server to get real responses from AI advisors.',
+          created_at: new Date().toISOString()
+        };
+        setConversations(prev => [...prev, assistantMessage]);
+        setIsLoading(false);
+      }, 1000);
+
+      // Update selected session if new
+      if (!selectedSessionId) {
+        setSelectedSessionId(sessionId);
+      }
+
+      // Reload sessions to update the list
       loadSessions();
-      loadStats();
     } catch (error) {
-      console.error('Failed to clear conversation:', error);
+      console.error('Failed to send message:', error);
+      setIsLoading(false);
     }
-  }, [selectedSessionId, loadSessions, loadStats]);
+  }, [selectedSessionId, loadSessions]);
 
   const { isConnected } = useWebSocket({
     onMessage: (message) => {
@@ -112,66 +148,136 @@ export default function Dashboard() {
 
   // Initial load
   useEffect(() => {
-    loadStats();
     loadSessions();
+    loadStats();
     loadJobs();
-  }, [loadStats, loadSessions, loadJobs]);
+  }, [loadSessions, loadStats, loadJobs]);
 
-  // Auto-refresh every 30 seconds
+  // Auto-refresh stats and jobs every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       loadStats();
       loadJobs();
-      if (selectedSessionId) {
-        loadConversations(selectedSessionId);
-      }
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [loadStats, loadJobs, loadConversations, selectedSessionId]);
+  }, [loadStats, loadJobs]);
+
+  // Convert sessions to chat sessions format
+  const chatSessions = sessions.map(session => ({
+    id: session.session_id,
+    title: session.session_id.substring(0, 30) || 'New conversation',
+    timestamp: new Date(session.last_updated),
+    isActive: session.session_id === selectedSessionId
+  }));
+
+  // Convert conversations to messages format
+  const messages = conversations.map((conv, index) => ({
+    id: `msg-${conv.id || index}`,
+    role: conv.role as 'user' | 'assistant' | 'system',
+    content: conv.content,
+    model: conv.model_name,
+    timestamp: new Date(conv.created_at)
+  }));
+
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-900 p-6">
-      <div className="max-w-[1800px] mx-auto">
-        {/* Header */}
-        <header className="bg-slate-800 rounded-lg shadow-lg p-6 mb-6 flex justify-between items-center">
-          <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-            🤖 Multi-AI Advisor Dashboard
-          </h1>
-          <ConnectionStatus isConnected={isConnected} />
-        </header>
+    <div className="flex h-screen bg-[var(--background)] overflow-hidden">
+      {/* Mobile Sidebar Toggle */}
+      <button
+        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+        className="lg:hidden fixed top-4 left-4 z-50 w-10 h-10 rounded-full bg-[var(--card-bg)] border border-[var(--border)] flex items-center justify-center hover:bg-[var(--accent-primary)] transition-colors"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
 
-        {/* Stats Cards */}
-        <StatsCards stats={stats} />
+      {/* Sidebar Overlay for Mobile */}
+      {isSidebarOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/50 z-30"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
 
-        {/* Main Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-350px)]">
-          {/* Sessions Panel */}
-          <div className="lg:col-span-3">
-            <SessionsList
-              sessions={sessions}
-              selectedSessionId={selectedSessionId}
-              onSelectSession={handleSelectSession}
-              onRefresh={loadSessions}
-            />
-          </div>
-
-          {/* Conversations Panel */}
-          <div className="lg:col-span-5">
-            <ConversationPanel
-              messages={conversations}
-              sessionId={selectedSessionId}
-              onClear={handleClearConversation}
-              onRefresh={() => selectedSessionId && loadConversations(selectedSessionId)}
-            />
-          </div>
-
-          {/* Jobs Panel */}
-          <div className="lg:col-span-4">
-            <JobsList jobs={jobs} onRefresh={loadJobs} />
-          </div>
-        </div>
+      {/* Sidebar */}
+      <div className={`w-80 flex-shrink-0 fixed lg:relative z-40 h-full transition-transform duration-300 ${
+        isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
+      }`}>
+        <ChatSidebar
+          sessions={chatSessions}
+          onNewChat={() => {
+            handleNewChat();
+            setIsSidebarOpen(false);
+          }}
+          onSelectSession={(id) => {
+            handleSelectSession(id);
+            setIsSidebarOpen(false);
+          }}
+          activeSessionId={selectedSessionId || undefined}
+        />
       </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden lg:ml-0">
+        {selectedSessionId && conversations.length > 0 ? (
+          <ChatInterface
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            isLoading={isLoading}
+          />
+        ) : (
+          <div className="flex-1 overflow-y-auto">
+            <WelcomeScreen />
+            <div className="border-t border-[var(--border)] p-6">
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                const input = (e.target as HTMLFormElement).querySelector('textarea');
+                if (input) {
+                  handleSendMessage(input.value);
+                  input.value = '';
+                }
+              }} className="max-w-4xl mx-auto">
+                <div className="relative bg-[var(--card-bg)] rounded-3xl border border-[var(--border)] focus-within:border-[var(--accent-primary)] transition-colors">
+                  <div className="flex items-center gap-3 px-5 py-4">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-pink-400 to-rose-400 flex items-center justify-center flex-shrink-0">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></svg>
+                    </div>
+                    <textarea
+                      placeholder="What's in your mind?..."
+                      className="flex-1 bg-transparent border-none outline-none resize-none text-[var(--foreground)] placeholder:text-[var(--text-muted)] text-base max-h-[200px]"
+                      rows={1}
+                      disabled={isLoading}
+                    />
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-11 h-11 rounded-full gradient-button flex items-center justify-center flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-lg hover:shadow-indigo-500/30 transition-all"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <p className="text-xs text-[var(--text-muted)] text-center mt-3">
+                  AI can make mistakes. Consider checking important information.
+                </p>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* System Monitor Floating Button */}
+      <SystemMonitor
+        stats={stats}
+        jobs={jobs}
+        isConnected={isConnected}
+        onRefreshJobs={loadJobs}
+      />
     </div>
   );
 }

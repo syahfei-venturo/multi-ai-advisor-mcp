@@ -3,8 +3,16 @@
 @tailwind utilities;
 
 :root {
-  --background: #0f172a;
-  --foreground: #f1f5f9;
+  /* Dark Theme Colors - Inspired by Figma Design */
+  --background: #0a0a0a;
+  --foreground: #e8e8e8;
+  --sidebar-bg: #1a1a1a;
+  --card-bg: #1f1f1f;
+  --border: #2a2a2a;
+  --accent-primary: #5b5bd6;
+  --accent-hover: #4a4ac0;
+  --text-muted: #8a8a8a;
+  --text-secondary: #b0b0b0;
 }
 
 * {
@@ -27,19 +35,33 @@ body {
 
 /* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #1e293b;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 4px;
+  background: #2a2a2a;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  background: #3a3a3a;
+}
+
+/* Smooth animations */
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+/* Custom gradient for buttons */
+.gradient-button {
+  background: linear-gradient(135deg, var(--accent-primary) 0%, #7c7ce5 100%);
+}
+
+.gradient-button:hover {
+  background: linear-gradient(135deg, var(--accent-hover) 0%, #6b6bd4 100%);
 }
