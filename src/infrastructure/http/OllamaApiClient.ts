@@ -6,6 +6,14 @@ import { ChatMessage } from '../../core/templates/types.js';
 
 /**
  * Ollama API Client implementation
+ * Optimized for MoE models like Llama-3.2-8X3B-MOE-Dark-Champion
+ * Best practices:
+ * - Temperature: 0.1-5.0 (higher for variety)
+ * - Repeat Penalty: 1.02-1.15
+ * - DRY Sampler: Highly responsive
+ * - Dynamic Temperature: Recommended for MoE
+ * - Smoothing: 1.5 in KoboldCPP (0.3-0.5 in Ollama)
+ * - Max Context: Up to 128k tokens
  */
 export class OllamaApiClient implements IOllamaClient {
   private apiUrl: string;
@@ -46,15 +54,32 @@ export class OllamaApiClient implements IOllamaClient {
                 num_thread: 8, // CPU threads for hybrid processing
 
                 // Memory & Performance (optimized for 8GB VRAM)
-                num_ctx: 4096, // Context window size for longer conversations
-                num_batch: 892, 
+                num_ctx: 4096, // Context window size (MoE models support up to 128k)
+                num_batch: 892,
                 num_predict: 892,
 
-                // Quality Control
-                temperature: 0.9,
+                // Quality Control (MoE optimized: temp 0.1-5.0, repeat_penalty 1.02-1.15)
+                temperature: 0.8,
                 top_k: 40, // Sampling parameter
                 top_p: 0.9, // Nucleus sampling
-                repeat_penalty: 1.2, // Prevent repetition
+                repeat_penalty: 1.02, // Prevent repetition (1.02-1.15 recommended for MoE)
+
+                // DRY Sampler (MoE models highly responsive to this)
+                dry_multiplier: 0.8, // DRY penalty strength (0.0 = disabled)
+                dry_base: 1.75, // Base for DRY penalty calculation
+                dry_allowed_length: 2, // Tokens that can repeat
+                dry_sequence_breakers: ['\n', ':', '"', '*'], // Break sequences
+
+                // Dynamic Temperature (MoE models respond very well to this)
+                dynatemp_range: 0.5, // Dynamic temperature range (recommended 0.5-1.0 for MoE)
+                dynatemp_exponent: 1.0, // Exponent for dynamic temp scaling
+
+                // Smooth/Quadratic Samplers (MoE optimized: equivalent to 1.5 in KoboldCPP)
+                smoothing_factor: 0.4, // Smoothing factor (0.4 ≈ 1.5 in KoboldCPP)
+                smoothing_curve: 1.0, // Curve parameter for smoothing
+
+                // Regeneration (for MoE expert variation - random seed for diversity)
+                seed: Math.floor(Math.random() * 1000000), // Random seed for variation
 
                 // Model Management
                 keep_alive: '10m', // Keep model in memory for 10 minutes
@@ -100,15 +125,32 @@ export class OllamaApiClient implements IOllamaClient {
                 num_thread: 8, // CPU threads for hybrid processing
 
                 // Memory & Performance (optimized for 8GB VRAM)
-                num_ctx: 4096, // Context window size for longer conversations
-                num_batch: 892, 
+                num_ctx: 4096, // Context window size (MoE models support up to 128k)
+                num_batch: 892,
                 num_predict: 892,
 
-                // Quality Control
-                temperature: 0.9,
+                // Quality Control (MoE optimized: temp 0.1-5.0, repeat_penalty 1.02-1.15)
+                temperature: 0.8,
                 top_k: 40, // Sampling parameter
                 top_p: 0.9, // Nucleus sampling
-                repeat_penalty: 1.2, // Prevent repetition
+                repeat_penalty: 1.02, // Prevent repetition (1.02-1.15 recommended for MoE)
+
+                // DRY Sampler (MoE models highly responsive to this)
+                dry_multiplier: 0.8, // DRY penalty strength (0.0 = disabled)
+                dry_base: 1.75, // Base for DRY penalty calculation
+                dry_allowed_length: 2, // Tokens that can repeat
+                dry_sequence_breakers: ['\n', ':', '"', '*'], // Break sequences
+
+                // Dynamic Temperature (MoE models respond very well to this)
+                dynatemp_range: 0.5, // Dynamic temperature range (recommended 0.5-1.0 for MoE)
+                dynatemp_exponent: 1.0, // Exponent for dynamic temp scaling
+
+                // Smooth/Quadratic Samplers (MoE optimized: equivalent to 1.5 in KoboldCPP)
+                smoothing_factor: 0.4, // Smoothing factor (0.4 ≈ 1.5 in KoboldCPP)
+                smoothing_curve: 1.0, // Curve parameter for smoothing
+
+                // Regeneration (for MoE expert variation - random seed for diversity)
+                seed: Math.floor(Math.random() * 1000000), // Random seed for variation
 
                 // Model Management
                 keep_alive: '10m', // Keep model in memory for 10 minutes
