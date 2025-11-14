@@ -23,12 +23,12 @@ export function SystemMonitor({ stats, jobs, isConnected, onRefreshJobs }: Syste
       {/* Floating Action Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all z-30 flex items-center justify-center relative"
+        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all z-30 flex items-center justify-center relative"
         title="System Monitor"
       >
-        <Activity size={20} className="sm:w-6 sm:h-6" />
+        <Activity size={18} className="sm:w-5 sm:h-5" />
         {hasActiveJobs && (
-          <span className="absolute -top-1 -right-1 w-5 h-5 sm:w-6 sm:h-6 bg-red-500 rounded-full flex items-center justify-center text-[10px] sm:text-xs font-bold animate-pulse">
+          <span className="absolute -top-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-red-500 rounded-full flex items-center justify-center text-[9px] sm:text-[10px] font-bold animate-pulse">
             {runningJobsCount}
           </span>
         )}

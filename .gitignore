@@ -49,3 +49,4 @@ data
 .env
 CLAUDE.md
 web-ui/.next
+.claude
