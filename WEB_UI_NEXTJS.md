@@ -62,7 +62,30 @@ npm run build
 
 ### 3. Start Development
 
-**Option A: Separate Terminals (Recommended)**
+**🎉 Auto-Start Mode (Recommended) - JUST ONE COMMAND!**
+
+Next.js will automatically start when you run the backend:
+
+```bash
+# Single command starts BOTH backend (port 3001) AND Next.js (port 3000)!
+node build/index.js --debug
+```
+
+That's it! Both servers will start automatically:
+- Backend API + WebSocket: `http://localhost:3001`
+- Next.js Frontend: `http://localhost:3000`
+
+Output will show:
+```
+[WebServer] Backend API available at http://localhost:3001
+[WebServer] Starting Next.js dev server...
+[Next.js] - Local:         http://localhost:3000
+[Next.js] ✓ Ready in 2.7s
+```
+
+**Alternative: Manual Mode (Separate Terminals)**
+
+If you prefer to run them separately:
 
 ```bash
 # Terminal 1: Start Express backend (port 3001)
@@ -71,15 +94,6 @@ node build/index.js --debug
 # Terminal 2: Start Next.js dev server (port 3000)
 cd web-ui
 npm run dev
-```
-
-**Option B: Using npm scripts**
-
-```bash
-# Add to package.json scripts:
-"dev:backend": "node build/index.js --debug",
-"dev:frontend": "cd web-ui && npm run dev",
-"dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\""
 ```
 
 ### 4. Access Dashboard
