@@ -14,9 +14,12 @@ export class OllamaService {
   ) {}
 
   /**
-   * Query multiple models with a question
+   * Query multiple models with a question and progress callback
    */
-  async queryModels(request: ModelQueryRequest): Promise<QueryResult> {
+  async queryModels(
+    request: ModelQueryRequest,
+    onProgress?: (percentage: number, message: string) => void
+  ): Promise<QueryResult> {
     const {
       question,
       systemPrompt,
@@ -26,6 +29,8 @@ export class OllamaService {
     } = request;
 
     const sessionId = inputSessionId || `session_${Date.now()}`;
+
+    onProgress?.(5, `Starting query for ${this.defaultModels.length} models...`);
 
     // Build conversation context
     const conversationContext = this.conversationService.buildContext(
@@ -40,7 +45,7 @@ export class OllamaService {
 
     // Query each model in parallel
     const responses = await Promise.all(
-      this.defaultModels.map(async (modelName) => {
+      this.defaultModels.map(async (modelName, index) => {
         try {
           let modelSystemPrompt =
             systemPrompt || "You are a helpful AI assistant answering a user's question.";
@@ -50,6 +55,8 @@ export class OllamaService {
           } else if (!systemPrompt && modelName in this.defaultSystemPrompts) {
             modelSystemPrompt = this.defaultSystemPrompts[modelName];
           }
+
+          onProgress?.(10 + (index * 5), `Querying ${modelName}...`);
 
           const data = await this.ollamaClient.generate(
             modelName,
@@ -87,6 +94,8 @@ export class OllamaService {
       })
     );
 
+    onProgress?.(80, 'Processing responses...');
+
     // Add user question to history
     this.conversationService.addUserMessage(sessionId, question);
 
@@ -98,6 +107,8 @@ export class OllamaService {
     });
 
     const formattedText = this.formatResponses(sessionId, responses);
+
+    onProgress?.(100, 'Completed');
 
     return {
       sessionId,

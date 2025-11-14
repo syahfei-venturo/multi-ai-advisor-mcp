@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { JobService } from '../../application/services/JobService.js';
+import { OllamaService } from '../../application/services/OllamaService.js';
 
 /**
  * Register the query-models tool
@@ -8,9 +9,38 @@ import { JobService } from '../../application/services/JobService.js';
 export function registerQueryModelsTool(
   server: McpServer,
   jobService: JobService,
+  ollamaService: OllamaService,
   defaultModels: string[],
   debugLog: (message: string) => void
 ) {
+  // Setup job execution handler
+  jobService.onJobStarted(async (job) => {
+    if (job.type === 'query-models') {
+      try {
+        const input = job.input as any;
+        const { question, system_prompt, model_system_prompts, session_id, include_history } =
+          input;
+
+        const result = await ollamaService.queryModels(
+          {
+            question,
+            systemPrompt: system_prompt,
+            modelSystemPrompts: model_system_prompts,
+            sessionId: session_id,
+            includeHistory: include_history,
+          },
+          (percentage, message) => {
+            jobService.updateProgress(job.id, percentage, message);
+          }
+        );
+
+        jobService.completeJob(job.id, result);
+      } catch (error) {
+        jobService.failJob(job.id, error instanceof Error ? error.message : String(error));
+      }
+    }
+  });
+
   server.tool(
     'query-models',
     'Query multiple AI models via Ollama and get their responses to compare perspectives',
