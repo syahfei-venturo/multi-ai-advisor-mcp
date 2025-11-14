@@ -2,7 +2,7 @@
  * Tests for Retry and Circuit Breaker logic
  */
 
-import { withRetry, CircuitBreaker, DEFAULT_RETRY_CONFIG, isRetryableError } from '../src/retry.js';
+import { withRetry, CircuitBreaker, DEFAULT_RETRY_CONFIG, isRetryableError } from '../src/utils/retry.js';
 
 describe('Retry Logic', () => {
   describe('withRetry - Success Cases', () => {

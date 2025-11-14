@@ -3,12 +3,38 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import fetch from "node-fetch";
 import { getConfig, printConfigInfo } from "./config.js";
-import { initializeDatabase, getDatabase, closeDatabase } from "./database.js";
-import { withRetry, CircuitBreaker, DEFAULT_RETRY_CONFIG, isRetryableError, createErrorLog } from "./retry.js";
-import { jobQueue, Job } from "./jobqueue.js";
+import { initializeDatabase, getDatabaseConnection, closeDatabase } from "./infrastructure/database/DatabaseConnection.js";
+import { withRetry, CircuitBreaker, DEFAULT_RETRY_CONFIG, isRetryableError, createErrorLog } from "./utils/retry.js";
+import { jobQueue, Job } from "./infrastructure/queue/JobQueue.js";
 
 // Load configuration from environment and CLI arguments
 const config = getConfig();
+
+// Import repositories dynamically
+import { ConversationRepository } from './infrastructure/database/repositories/ConversationRepository.js';
+import { JobRepository } from './infrastructure/database/repositories/JobRepository.js';
+
+// Compatibility wrapper for old getDatabase() calls
+function getDatabase() {
+  const dbConn = getDatabaseConnection();
+  const db = dbConn.getDatabase();
+  const conversationRepo = new ConversationRepository(db);
+  const jobRepo = new JobRepository(db);
+
+  // Return an object that mimics the old ConversationDatabase API
+  return {
+    getDatabase: () => db,
+    getDatabasePath: () => dbConn.getDatabasePath(),
+    getStatistics: () => dbConn.getStatistics(),
+    saveMessage: (...args: Parameters<ConversationRepository['saveMessage']>) => conversationRepo.saveMessage(...args),
+    loadSessionHistory: (...args: Parameters<ConversationRepository['loadSessionHistory']>) => conversationRepo.loadSessionHistory(...args),
+    getAllSessions: () => conversationRepo.getAllSessions(),
+    deleteSession: (...args: Parameters<ConversationRepository['deleteSession']>) => conversationRepo.deleteSession(...args),
+    getAllJobs: () => jobRepo.getAllJobs(),
+    saveJob: (...args: Parameters<JobRepository['saveJob']>) => jobRepo.saveJob(...args),
+    loadJob: (...args: Parameters<JobRepository['loadJob']>) => jobRepo.loadJob(...args),
+  };
+}
 
 // Ollama API URL and models from config
 const OLLAMA_API_URL = config.ollama.apiUrl;

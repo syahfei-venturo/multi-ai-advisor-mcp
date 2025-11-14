@@ -1,4 +1,56 @@
-import { ConversationDatabase } from '../src/database.js';
+import { DatabaseConnection } from '../src/infrastructure/database/DatabaseConnection.js';
+import { ConversationRepository } from '../src/infrastructure/database/repositories/ConversationRepository.js';
+
+// Wrapper class untuk compatibility dengan test yang existing
+class ConversationDatabase {
+  private dbConn: DatabaseConnection;
+  private conversationRepo: ConversationRepository;
+
+  constructor(dbPath: string) {
+    this.dbConn = new DatabaseConnection(dbPath);
+    this.conversationRepo = new ConversationRepository(this.dbConn.getDatabase());
+  }
+
+  saveMessage(...args: Parameters<ConversationRepository['saveMessage']>) {
+    return this.conversationRepo.saveMessage(...args);
+  }
+
+  loadSessionHistory(...args: Parameters<ConversationRepository['loadSessionHistory']>) {
+    return this.conversationRepo.loadSessionHistory(...args);
+  }
+
+  getAllSessions() {
+    return this.conversationRepo.getAllSessions();
+  }
+
+  deleteSession(...args: Parameters<ConversationRepository['deleteSession']>) {
+    return this.conversationRepo.deleteSession(...args);
+  }
+
+  getSessionMetadata(...args: Parameters<ConversationRepository['getSessionMetadata']>) {
+    return this.conversationRepo.getSessionMetadata(...args);
+  }
+
+  getAllSessionsMetadata() {
+    return this.conversationRepo.getAllSessionsMetadata();
+  }
+
+  loadSessionHistoryPaginated(...args: Parameters<ConversationRepository['loadSessionHistoryPaginated']>) {
+    return this.conversationRepo.loadSessionHistoryPaginated(...args);
+  }
+
+  deleteSessionsByAge(...args: Parameters<ConversationRepository['deleteSessionsByAge']>) {
+    return this.conversationRepo.deleteSessionsByAge(...args);
+  }
+
+  close() {
+    return this.dbConn.close();
+  }
+
+  getStatistics() {
+    return this.dbConn.getStatistics();
+  }
+}
 
 describe('ConversationDatabase', () => {
   let db: ConversationDatabase;

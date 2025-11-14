@@ -1,4 +1,4 @@
-import { JobQueue, Job } from "../src/jobqueue";
+import { JobQueue, Job } from "../src/infrastructure/queue/JobQueue.js";
 
 describe("JobQueue", () => {
   let queue: JobQueue;
