@@ -2,6 +2,7 @@ import fetch from 'node-fetch';
 import { IOllamaClient } from '../../core/interfaces/IOllamaClient.js';
 import { OllamaResponse } from '../../core/entities/Model.js';
 import { withRetry, CircuitBreaker, DEFAULT_RETRY_CONFIG } from '../../utils/retry.js';
+import { ChatMessage } from '../../core/templates/types.js';
 
 /**
  * Ollama API Client implementation
@@ -38,6 +39,41 @@ export class OllamaApiClient implements IOllamaClient {
               model,
               prompt,
               system: systemPrompt,
+              stream: false,
+            }),
+          });
+
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status}`);
+          }
+
+          return res;
+        },
+        this.retryConfig,
+        undefined
+      );
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = (await response.json()) as OllamaResponse;
+    return data;
+  }
+
+  async chat(model: string, messages: ChatMessage[]): Promise<OllamaResponse> {
+    const response = await this.circuitBreaker.execute(async () => {
+      return withRetry(
+        async () => {
+          const res = await fetch(`${this.apiUrl}/api/chat`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model,
+              messages,
               stream: false,
             }),
           });

@@ -24,6 +24,10 @@ graph TD
 
 - **Single Advisor Mode (Default)**: Fast and efficient with one thinking model
 - **Multi-Advisor Mode (Optional)**: Query multiple Ollama models for diverse perspectives
+- **Smart Template System**: Auto-detects and uses optimal prompt format for each model
+  - Llama3, Command-R, ChatML, Mistral, Qwen support
+  - Legacy text-based format for compatibility
+  - Manual override options available
 - Assign different roles/personas to each model
 - View all available Ollama models on your system
 - Customize system prompts for each model
@@ -281,6 +285,16 @@ If the tools don't appear in Claude:
 ### RAM is not enough
 
 Some managers' AI models may have chosen larger models, but there is not enough memory to run them. You can try specifying a smaller model (see the [Basic Usage](#basic-usage)) or upgrading the memory.
+
+## Advanced Features
+
+### Template System
+
+The server supports multiple prompt template formats for better model compatibility. See [TEMPLATES.md](TEMPLATES.md) for detailed documentation on:
+- Auto-detection of optimal template format (Llama3, Command-R, ChatML, etc.)
+- Manual template override options
+- Supported model families
+- Configuration examples
 
 ## License
 

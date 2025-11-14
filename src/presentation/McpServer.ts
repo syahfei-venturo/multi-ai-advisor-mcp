@@ -72,7 +72,8 @@ export class McpServer {
       this.ollamaClient,
       this.conversationService,
       config.ollama.models,
-      config.prompts
+      config.prompts,
+      config.templates
     );
     this.jobService = new JobService(jobQueue, jobRepo);
 

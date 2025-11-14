@@ -23,6 +23,9 @@ export interface Config {
   prompts: {
     [key: string]: string;
   };
+  templates?: {
+    [key: string]: 'legacy' | 'chat';
+  };
   thinking?: {
     defaultThinkingSteps: number;
     maxThinkingSteps: number;
@@ -47,6 +50,7 @@ const ConfigSchema = z.object({
     models: z.array(z.string().min(1)).min(1, 'At least 1 model is required'),
   }),
   prompts: z.record(z.string()),
+  templates: z.record(z.enum(['legacy', 'chat'])).optional(),
   thinking: z.object({
     defaultThinkingSteps: z.number().int().min(1).max(5),
     maxThinkingSteps: z.number().int().min(1).max(5),
@@ -124,12 +128,12 @@ export function getConfig(): Config {
   
   // Get system prompts - fully dynamic for any model
   const prompts: Record<string, string> = {};
-  
+
   models.forEach((model, index) => {
     let prompt = '';
     const modelIndex = index + 1;
     const modelPrefix = model.split(':')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
-    
+
     if (cliArgs[`model${modelIndex}-prompt`]) {
       prompt = String(cliArgs[`model${modelIndex}-prompt`]);
     }
@@ -145,8 +149,70 @@ export function getConfig(): Config {
     else {
       prompt = `You are a helpful AI assistant (${model}).`;
     }
-    
+
     prompts[model] = prompt;
+  });
+
+  // Get template types - auto-detect or manual override
+  const templates: Record<string, 'legacy' | 'chat'> = {};
+
+  models.forEach((model, index) => {
+    const modelIndex = index + 1;
+    const modelPrefix = model.split(':')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
+    const modelLower = model.toLowerCase();
+
+    // Priority: CLI args > Env vars > Auto-detection
+    let templateType: 'legacy' | 'chat' | undefined;
+
+    // CLI argument: --model1-template=chat
+    if (cliArgs[`model${modelIndex}-template`]) {
+      const value = String(cliArgs[`model${modelIndex}-template`]).toLowerCase();
+      templateType = value === 'chat' ? 'chat' : 'legacy';
+    }
+    // CLI argument by model name: --llama3-template=chat
+    else if (cliArgs[`${modelPrefix}-template`]) {
+      const value = String(cliArgs[`${modelPrefix}-template`]).toLowerCase();
+      templateType = value === 'chat' ? 'chat' : 'legacy';
+    }
+    // Environment variable: MODEL_1_TEMPLATE=chat
+    else if (process.env[`MODEL_${modelIndex}_TEMPLATE`]) {
+      const value = (process.env[`MODEL_${modelIndex}_TEMPLATE`] || '').toLowerCase();
+      templateType = value === 'chat' ? 'chat' : 'legacy';
+    }
+    // Environment variable by model name: LLAMA3_TEMPLATE=chat
+    else if (process.env[`${modelPrefix.toUpperCase()}_TEMPLATE`]) {
+      const value = (process.env[`${modelPrefix.toUpperCase()}_TEMPLATE`] || '').toLowerCase();
+      templateType = value === 'chat' ? 'chat' : 'legacy';
+    }
+    // Auto-detection based on model name
+    else {
+      // Command-R, Cohere models
+      if (modelLower.includes('command-r') || modelLower.includes('cohere')) {
+        templateType = 'chat';
+      }
+      // Llama 3.x models
+      else if (modelLower.includes('llama3') || modelLower.includes('llama-3')) {
+        templateType = 'chat';
+      }
+      // ChatML models
+      else if (modelLower.includes('chatml')) {
+        templateType = 'chat';
+      }
+      // Mistral models
+      else if (modelLower.includes('mistral')) {
+        templateType = 'chat';
+      }
+      // Qwen models
+      else if (modelLower.includes('qwen')) {
+        templateType = 'chat';
+      }
+      // Default to legacy
+      else {
+        templateType = 'legacy';
+      }
+    }
+
+    templates[model] = templateType;
   });
 
   // Job queue configuration
@@ -174,6 +240,7 @@ export function getConfig(): Config {
       models,
     },
     prompts,
+    templates,
     thinking: thinkingConfig,
     jobQueue: jobQueueConfig,
   };
@@ -232,7 +299,9 @@ export function printConfigInfo(config: Config): void {
   
   console.error('💭 System Prompts:');
   Object.entries(config.prompts).forEach(([model, prompt]) => {
-    console.error(`  ${model}:`);
+    const template = config.templates?.[model] || 'legacy';
+    const templateLabel = template === 'chat' ? '📱 chat' : '📄 legacy';
+    console.error(`  ${model} (${templateLabel}):`);
     console.error(`    "${prompt.substring(0, 70)}${prompt.length > 70 ? '...' : ''}"`);
   });
   
@@ -248,6 +317,9 @@ export function printConfigInfo(config: Config): void {
   console.error('  --model1-prompt "TEXT"          System prompt for 1st model (works with ANY models!)');
   console.error('  --model2-prompt "TEXT"          System prompt for 2nd model');
   console.error('  --model3-prompt "TEXT"          System prompt for 3rd model (etc.)');
+  console.error('  --model1-template TYPE          Template type: "legacy" or "chat" (auto-detected by default)');
+  console.error('  --model2-template TYPE          Template for 2nd model');
+  console.error('  --model3-template TYPE          Template for 3rd model (etc.)');
   console.error('  --max-concurrent-jobs NUM       Max concurrent jobs (default: 2)');
   console.error('  --retry-attempts NUM            Max retry attempts (default: 4)');
   console.error('  --retry-initial-delay NUM       Initial retry delay in ms (default: 2000)');

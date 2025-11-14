@@ -1,6 +1,8 @@
 import { IOllamaClient } from '../../core/interfaces/IOllamaClient.js';
 import { ModelResponse, ModelQueryRequest, QueryResult } from '../../core/entities/Model.js';
 import { ConversationService } from './ConversationService.js';
+import { TemplateFactory } from '../../core/templates/TemplateFactory.js';
+import { TemplateType } from '../../core/templates/types.js';
 
 /**
  * Service for querying Ollama models
@@ -10,7 +12,8 @@ export class OllamaService {
     private ollamaClient: IOllamaClient,
     private conversationService: ConversationService,
     private defaultModels: string[],
-    private defaultSystemPrompts: Record<string, string>
+    private defaultSystemPrompts: Record<string, string>,
+    private templateTypes?: Record<string, TemplateType>
   ) {}
 
   /**
@@ -32,16 +35,10 @@ export class OllamaService {
 
     onProgress?.(5, `Starting query for ${this.defaultModels.length} models...`);
 
-    // Build conversation context
-    const conversationContext = this.conversationService.buildContext(
-      sessionId,
-      includeHistory
-    );
-
-    const fullPrompt =
-      includeHistory && conversationContext
-        ? `${conversationContext}New user question: ${question}`
-        : question;
+    // Get conversation history
+    const history = includeHistory
+      ? this.conversationService.getHistory(sessionId)
+      : [];
 
     // Query each model in parallel
     const responses = await Promise.all(
@@ -58,11 +55,18 @@ export class OllamaService {
 
           onProgress?.(10 + (index * 5), `Querying ${modelName}...`);
 
-          const data = await this.ollamaClient.generate(
-            modelName,
-            fullPrompt,
-            modelSystemPrompt
-          );
+          // Get template type for this model
+          const templateType = this.templateTypes?.[modelName] ||
+                              TemplateFactory.detectTemplateType(modelName);
+          const template = TemplateFactory.getTemplate(templateType);
+
+          // Format prompt using template
+          const payload = template.formatPrompt(history, question, modelSystemPrompt);
+
+          // Call appropriate API endpoint based on payload type
+          const data = payload.type === 'chat'
+            ? await this.ollamaClient.chat(modelName, payload.messages)
+            : await this.ollamaClient.generate(modelName, payload.prompt, payload.system);
 
           return {
             model: modelName,
