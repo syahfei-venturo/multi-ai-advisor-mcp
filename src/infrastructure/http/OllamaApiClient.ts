@@ -40,6 +40,15 @@ export class OllamaApiClient implements IOllamaClient {
               prompt,
               system: systemPrompt,
               stream: false,
+              options: {
+                num_gpu: 1, // Use GPU acceleration (RTX 2060 SUPER - 8GB VRAM)
+                num_ctx: 4096, // Context window size for longer conversations
+                num_thread: 8, // CPU threads for hybrid processing
+                temperature: 0.7, // Balanced creativity
+                top_k: 40, // Sampling parameter
+                top_p: 0.9, // Nucleus sampling
+                repeat_penalty: 1.1, // Prevent repetition
+              },
             }),
           });
 
@@ -75,6 +84,15 @@ export class OllamaApiClient implements IOllamaClient {
               model,
               messages,
               stream: false,
+              options: {
+                num_gpu: 1, // Use GPU acceleration (RTX 2060 SUPER - 8GB VRAM)
+                num_ctx: 4096, // Context window size for longer conversations
+                num_thread: 8, // CPU threads for hybrid processing
+                temperature: 0.7, // Balanced creativity
+                top_k: 40, // Sampling parameter
+                top_p: 0.9, // Nucleus sampling
+                repeat_penalty: 1.1, // Prevent repetition
+              },
             }),
           });
 
