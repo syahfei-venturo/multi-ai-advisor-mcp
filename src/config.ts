@@ -240,7 +240,7 @@ export function getConfig(): Config {
   // Web UI configuration
   const webUIConfig = {
     enabled: getBoolean('web-ui', 'WEB_UI_ENABLED', true),
-    port: getNumber('web-ui-port', 'WEB_UI_PORT', 3000),
+    port: getNumber('web-ui-port', 'WEB_UI_PORT', 3001), // Changed to 3001 for Next.js (runs on 3000)
   };
 
   const rawConfig = {
