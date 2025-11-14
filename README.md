@@ -3,7 +3,7 @@
 
 [![smithery badge](https://smithery.ai/badge/@YuChenSSR/multi-ai-advisor-mcp)](https://smithery.ai/server/@YuChenSSR/multi-ai-advisor-mcp)
 
-A Model Context Protocol (MCP) server that queries multiple Ollama models and combines their responses, providing diverse AI perspectives on a single question. This creates a "council of advisors" approach where Claude can synthesize multiple viewpoints alongside its own to provide more comprehensive answers.
+A Model Context Protocol (MCP) server that queries Ollama models and provides AI-powered responses. By default, it uses a single advisor model (deepseek-r1:1.5b) for efficient thinking and reasoning. You can optionally configure multiple models to create a "council of advisors" approach where Claude can synthesize multiple viewpoints alongside its own to provide more comprehensive answers.
 
 <a href="https://glama.ai/mcp/servers/@YuChenSSR/multi-ai-advisor-mcp">
   <img width="380" height="200" src="https://glama.ai/mcp/servers/@YuChenSSR/multi-ai-advisor-mcp/badge" alt="Multi-Model Advisor MCP server" />
@@ -22,12 +22,14 @@ graph TD
 
 ## Features
 
-- Query multiple Ollama models with a single question
+- **Single Advisor Mode (Default)**: Fast and efficient with one thinking model
+- **Multi-Advisor Mode (Optional)**: Query multiple Ollama models for diverse perspectives
 - Assign different roles/personas to each model
 - View all available Ollama models on your system
 - Customize system prompts for each model
-- Configure via environment variables
+- Configure via environment variables or CLI arguments
 - Integrate seamlessly with Claude for Desktop
+- Sync and async query modes for flexible workflow
 
 ## Prerequisites
 
@@ -62,11 +64,15 @@ npx -y @smithery/cli install @YuChenSSR/multi-ai-advisor-mcp --client claude
    npm run build
    ```
 
-4. Install required Ollama models:
+4. Install required Ollama model:
+   ```bash
+   ollama pull deepseek-r1:1.5b
+   ```
+
+   Optional: Install additional models for multi-advisor setup:
    ```bash
    ollama pull gemma3:1b
    ollama pull llama3.2:1b
-   ollama pull deepseek-r1:1.5b
    ```
 
 ## Configuration
@@ -83,7 +89,10 @@ DEBUG=true
 
 # Ollama configuration
 OLLAMA_API_URL=http://localhost:11434
-DEFAULT_MODELS=gemma3:1b,llama3.2:1b,deepseek-r1:1.5b
+DEFAULT_MODELS=deepseek-r1:1.5b
+
+# For multiple advisors (optional):
+# DEFAULT_MODELS=gemma3:1b,llama3.2:1b,deepseek-r1:1.5b
 
 # System prompts for each model
 GEMMA_SYSTEM_PROMPT=You are a creative and innovative AI assistant. Think outside the box and offer novel perspectives.
@@ -122,7 +131,10 @@ npm run start:debug
 # Use a remote Ollama instance
 node build/index.js --ollama-url http://192.168.1.100:11434
 
-# Any models with dynamic prompts
+# Use a single advisor (default)
+node build/index.js --models deepseek-r1:1.5b
+
+# Use multiple models with dynamic prompts
 node build/index.js \
   --models llama3:latest,neural-chat,mistral \
   --model1-prompt "You are funny" \
@@ -130,7 +142,7 @@ node build/index.js \
   --model3-prompt "You are analytical"
 
 # Combine CLI args with environment variables
-OLLAMA_API_URL=http://remote:11434 node build/index.js --debug --models llama3:latest
+OLLAMA_API_URL=http://remote:11434 node build/index.js --debug
 ```
 
 **Predefined npm scripts:**
@@ -177,30 +189,30 @@ This will display all installed Ollama models and indicate which ones are config
 
 ### Basic Usage
 
-Simply ask Claude to use the multi-model advisor:
+Simply ask Claude to use the advisor:
 
 ```
 what are the most important skills for success in today's job market,
 ```
 
-Claude will query all default models and provide a synthesized response based on their different perspectives.
+By default, Claude will query the single advisor model (deepseek-r1:1.5b) for fast and efficient reasoning. If you have configured multiple models, it will query all of them and provide a synthesized response based on their different perspectives.
 
 #### Sync Mode (Default)
 
-By default, the tool waits for all models to respond and returns results directly:
+By default, the tool waits for the advisor model(s) to respond and returns results directly:
 
 ```
-Use the multi-model advisor to analyze: "What is the future of AI?"
+Use the advisor to analyze: "What is the future of AI?"
 ```
 
-The tool will automatically wait for all models to respond (up to 10 minutes) and return the results.
+The tool will automatically wait for the model(s) to respond (up to 10 minutes) and return the results.
 
 #### Async Mode (Manual Polling)
 
 For non-blocking execution with manual polling, set `wait_for_completion=false`:
 
 ```
-Use the multi-model advisor with wait_for_completion=false to analyze: "What is the future of AI?"
+Use the advisor with wait_for_completion=false to analyze: "What is the future of AI?"
 ```
 
 Claude will:
@@ -218,20 +230,21 @@ Claude will:
    - `list-available-models`: Shows all Ollama models on your system
    - `query-models`: Queries multiple models with a question
 
-2. When you ask Claude a question referring to the multi-model advisor:
+2. When you ask Claude a question referring to the advisor:
    - Claude decides to use the `query-models` tool
-   - The server sends your question to multiple Ollama models
-   - Each model responds with its perspective
-   - Claude receives all responses and synthesizes a comprehensive answer
+   - The server sends your question to the configured Ollama model(s)
+   - By default, one advisor model (deepseek-r1:1.5b) responds with reasoning
+   - If multiple models are configured, each responds with its perspective
+   - Claude receives the response(s) and synthesizes a comprehensive answer
 
-3. Each model can have a different "persona" or role assigned, encouraging diverse perspectives.
+3. When using multiple models, each can have a different "persona" or role assigned, encouraging diverse perspectives.
 
 ### Query Modes
 
 The `query-models` tool supports two modes:
 
 - **Sync Mode (default)**: Automatically waits for results
-  - Blocks until all models respond
+  - Blocks until model(s) respond
   - Returns results directly
   - Maximum wait time: 10 minutes
   - Best for interactive use

@@ -120,7 +120,7 @@ export function getConfig(): Config {
   const debug = getBoolean('debug', 'DEBUG', false);
   
   const ollamaUrl = getString('ollama-url', 'OLLAMA_API_URL', 'http://localhost:11434');
-  const models = getStringArray('models', 'DEFAULT_MODELS', ['gemma3:1b', 'gemma3:1b', 'gemma3:1b']);
+  const models = getStringArray('models', 'DEFAULT_MODELS', ['deepseek-r1:1.5b']);
   
   // Get system prompts - fully dynamic for any model
   const prompts: Record<string, string> = {};
