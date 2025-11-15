@@ -131,19 +131,31 @@ export class WebServer {
         // Use JobService to get in-memory jobs instead of JobRepository (database)
         const jobs = this.jobService.getAllJobs();
         // Convert Job objects to serializable format
-        const serializedJobs = jobs.map(job => ({
-          id: job.id,
-          type: job.type,
-          status: job.status,
-          progress: job.progress,
-          created_at: job.createdAt.toISOString(),
-          started_at: job.startedAt?.toISOString(),
-          completed_at: job.completedAt?.toISOString(),
-          question: job.input?.question || '',
-          results: job.result ? JSON.stringify(job.result) : null,
-          error: job.error,
-          session_id: job.input?.session_id || undefined
-        }));
+        const serializedJobs = jobs.map(job => {
+          // Extract model_name from results if available (for display purposes)
+          let model_name: string | undefined;
+          if (job.result && typeof job.result === 'object' && Array.isArray((job.result as any).responses)) {
+            const responses = (job.result as any).responses;
+            if (responses.length > 0 && responses[0].model) {
+              model_name = responses[0].model;
+            }
+          }
+          
+          return {
+            id: job.id,
+            type: job.type,
+            status: job.status,
+            progress: job.progress,
+            created_at: job.createdAt.toISOString(),
+            started_at: job.startedAt?.toISOString(),
+            completed_at: job.completedAt?.toISOString(),
+            question: job.input?.question || '',
+            results: job.result ? JSON.stringify(job.result) : null,
+            error: job.error,
+            session_id: job.input?.session_id || undefined,
+            model_name: model_name
+          };
+        });
         res.json({ success: true, data: serializedJobs });
       } catch (error) {
         res.status(500).json({

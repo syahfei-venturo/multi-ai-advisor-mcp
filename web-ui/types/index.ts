@@ -27,6 +27,7 @@ export interface Job {
   results?: string;
   error?: string;
   session_id?: string;
+  model_name?: string;
 }
 
 export interface Stats {

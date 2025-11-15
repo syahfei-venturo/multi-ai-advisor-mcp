@@ -254,6 +254,22 @@ function JobCard({ job, onStop }: { job: Job; onStop?: (jobId: string) => Promis
     }
   };
 
+  const calculateDuration = () => {
+    if (!job.started_at) return null;
+    const endTime = job.completed_at ? new Date(job.completed_at) : new Date();
+    const startTime = new Date(job.started_at);
+    const durationMs = endTime.getTime() - startTime.getTime();
+    const seconds = Math.floor(durationMs / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    
+    if (hours > 0) return `${hours}h ${minutes % 60}m`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${seconds}s`;
+  };
+
+  const duration = calculateDuration();
+
   return (
     <div className="bg-[var(--card-bg)] rounded-xl p-4 border border-[var(--border)] hover:border-[var(--accent-primary)] transition-all">
       <div className="flex items-start justify-between mb-3">
@@ -282,6 +298,21 @@ function JobCard({ job, onStop }: { job: Job; onStop?: (jobId: string) => Promis
         {job.question}
       </p>
 
+      <div className="mb-3 space-y-2">
+        {job.model_name && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[var(--text-secondary)]">model name</span>
+            <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded">{job.model_name}</span>
+          </div>
+        )}
+        {job.type === 'query-models' && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-[var(--text-secondary)]">query-models</span>
+            <span className="px-2 py-0.5 bg-indigo-500/20 text-indigo-300 rounded">{job.type}</span>
+          </div>
+        )}
+      </div>
+
       {job.progress > 0 && job.status === 'running' && (
         <div className="mb-2">
           <div className="h-1.5 bg-[var(--border)] rounded-full overflow-hidden">
@@ -294,9 +325,16 @@ function JobCard({ job, onStop }: { job: Job; onStop?: (jobId: string) => Promis
         </div>
       )}
 
-      <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
-        <span>{new Date(job.created_at).toLocaleString()}</span>
-        {job.type && <span className="px-2 py-0.5 bg-[var(--border)] rounded">{job.type}</span>}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-xs text-[var(--text-muted)]">
+          <span>{new Date(job.created_at).toLocaleString()}</span>
+          {duration && (
+            <span className="px-2 py-0.5 bg-[var(--border)] rounded flex items-center gap-1">
+              <Clock size={12} />
+              {duration}
+            </span>
+          )}
+        </div>
       </div>
 
       {job.error && (
