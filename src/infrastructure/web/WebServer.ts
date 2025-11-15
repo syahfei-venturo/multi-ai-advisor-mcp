@@ -184,6 +184,73 @@ export class WebServer {
       }
     });
 
+    // API: Stop job (cancel and delete the last user message that triggered it)
+    this.app.post('/api/jobs/:id/stop', (req: Request, res: Response) => {
+      try {
+        const jobId = req.params.id;
+        const job = this.jobService.getJobStatus(jobId);
+
+        if (!job) {
+          res.status(404).json({ success: false, error: 'Job not found' });
+          return;
+        }
+
+        // Get the session ID from the job input
+        const sessionId = job.input?.session_id as string | undefined;
+
+        // Cancel the job
+        this.jobService.cancelJob(jobId);
+
+        // Delete the last user message that triggered this job
+        if (sessionId) {
+          const conversations = this.conversationRepo.getHistory(sessionId);
+          if (conversations.length > 0) {
+            // Find and remove the last user message
+            const lastUserMessageIndex = conversations.length - 1 - 
+              conversations.slice().reverse().findIndex(m => m.role === 'user');
+            
+            if (lastUserMessageIndex >= 0) {
+              // Create new array without the last user message
+              const trimmedConversations = conversations.filter((_, index) => index !== lastUserMessageIndex);
+              
+              // Clear and re-add the trimmed history
+              this.conversationRepo.clearHistory(sessionId);
+              for (const msg of trimmedConversations) {
+                this.conversationRepo.saveMessage(
+                  sessionId,
+                  trimmedConversations.indexOf(msg),
+                  msg.role as 'user' | 'assistant',
+                  msg.content,
+                  msg.model_name,
+                  msg.thinking_text
+                );
+              }
+            }
+          }
+        }
+
+        this.broadcast({
+          type: 'job_cancelled',
+          jobId,
+          sessionId,
+          message: 'Job stopped and user message removed'
+        });
+
+        res.json({
+          success: true,
+          message: 'Job stopped and user message removed',
+          jobId,
+          sessionId
+        });
+      } catch (error) {
+        console.error('[WebServer] Error stopping job:', error);
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
     // API: Get statistics
     this.app.get('/api/stats', (req: Request, res: Response) => {
       try {

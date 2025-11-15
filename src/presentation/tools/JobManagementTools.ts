@@ -256,31 +256,49 @@ Use \`get-job-result\` with job ID \`${job.id}\` to retrieve the results.
   // cancel-job tool
   server.tool(
     'cancel-job',
-    'Cancel a running or pending job',
+    'Cancel a running or pending job and interrupt Ollama processing',
     {
       job_id: z.string().describe('The ID of the job to cancel'),
     },
     async ({ job_id }) => {
       try {
-        const success = jobService.cancelJob(job_id);
+        const job = jobService.getJobStatus(job_id);
 
-        if (!success) {
+        if (!job) {
           return {
+            isError: true,
             content: [
               {
                 type: 'text',
-                text: `Could not cancel job: ${job_id} (may be already running or completed)`,
+                text: `Job not found: ${job_id}`,
               },
             ],
           };
         }
 
-        const job = jobService.getJobStatus(job_id);
+        // Cancel the job (abort signal will be triggered internally if job is running)
+        const success = jobService.cancelJob(job_id);
+
+        if (!success && job.status !== 'running') {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Could not cancel job: ${job_id} (Current status: ${job.status})`,
+              },
+            ],
+          };
+        }
+
         const text = `# Job Cancelled
 
 Job ID: ${job_id}
-Status: ${job?.status || 'unknown'}
-Cancelled at: ${new Date().toISOString()}`;
+Previous Status: ${job.status}
+Cancelled at: ${new Date().toISOString()}
+
+**Actions taken:**
+- Job execution cancelled
+- Ollama processing will be interrupted`;
 
         return {
           content: [

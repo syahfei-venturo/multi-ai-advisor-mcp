@@ -174,6 +174,20 @@ export class McpServer implements SessionFactory, SSESessionFactory {
 
           this.debugLog(`[QueryModels] Job ${job.id} started: question="${question.substring(0, 50)}..."`);
 
+          // Create a cancellation check that monitors the job status
+          const cancellationCheck = setInterval(() => {
+            const currentJob = this.jobService.getJobStatus(job.id);
+            if (currentJob && currentJob.status === 'cancelled') {
+              clearInterval(cancellationCheck);
+              // Trigger abort if abort controller exists
+              const jobWithAbort = currentJob as any;
+              if (jobWithAbort.abortController) {
+                jobWithAbort.abortController.abort();
+              }
+              this.debugLog(`[QueryModels] Job ${job.id} cancellation signal received, aborting...`);
+            }
+          }, 100);
+
           const result = await this.ollamaService.queryModels(
             {
               question,
@@ -187,12 +201,20 @@ export class McpServer implements SessionFactory, SSESessionFactory {
             }
           );
 
+          clearInterval(cancellationCheck);
           this.debugLog(`[QueryModels] Job ${job.id} completed successfully`);
           this.jobService.completeJob(job.id, result);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message : String(error);
           this.debugLog(`[QueryModels] Job ${job.id} failed: ${errorMsg}`);
-          this.jobService.failJob(job.id, errorMsg);
+          
+          // Check if it was cancelled
+          const currentJob = this.jobService.getJobStatus(job.id);
+          if (currentJob?.status === 'cancelled') {
+            this.debugLog(`[QueryModels] Job ${job.id} was cancelled`);
+          } else {
+            this.jobService.failJob(job.id, errorMsg);
+          }
         }
       }
     });
@@ -209,7 +231,7 @@ export class McpServer implements SessionFactory, SSESessionFactory {
         notifyConversationUpdate(sessionId);
 
         // Notify WebUI about job completion
-        notifyJobUpdate(job.id, 'completed');
+        notifyJobUpdate(job.id, job.status);
       }
     });
   }

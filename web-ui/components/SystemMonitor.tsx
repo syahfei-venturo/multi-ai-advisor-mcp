@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Activity, Zap, CheckCircle, XCircle, Clock, TrendingUp, X } from 'lucide-react';
+import { Activity, Zap, CheckCircle, XCircle, Clock, TrendingUp, X, StopCircle } from 'lucide-react';
 import type { Stats, Job } from '@/types';
 
 interface SystemMonitorProps {
@@ -9,9 +9,10 @@ interface SystemMonitorProps {
   jobs: Job[];
   isConnected: boolean;
   onRefreshJobs?: () => void;
+  onStopJob?: (jobId: string) => Promise<void>;
 }
 
-export function SystemMonitor({ stats, jobs, isConnected, onRefreshJobs }: SystemMonitorProps) {
+export function SystemMonitor({ stats, jobs, isConnected, onRefreshJobs, onStopJob }: SystemMonitorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'stats' | 'jobs'>('stats');
 
@@ -107,7 +108,7 @@ export function SystemMonitor({ stats, jobs, isConnected, onRefreshJobs }: Syste
               {activeTab === 'stats' ? (
                 <StatsView stats={stats} />
               ) : (
-                <JobsView jobs={jobs} onRefresh={onRefreshJobs} />
+                <JobsView jobs={jobs} onRefresh={onRefreshJobs} onStopJob={onStopJob} />
               )}
             </div>
           </div>
@@ -190,7 +191,7 @@ function StatsView({ stats }: { stats: Stats | null }) {
   );
 }
 
-function JobsView({ jobs, onRefresh }: { jobs: Job[]; onRefresh?: () => void }) {
+function JobsView({ jobs, onRefresh, onStopJob }: { jobs: Job[]; onRefresh?: () => void; onStopJob?: (jobId: string) => Promise<void> }) {
   if (jobs.length === 0) {
     return (
       <div className="text-center py-12 text-[var(--text-muted)]">
@@ -213,13 +214,15 @@ function JobsView({ jobs, onRefresh }: { jobs: Job[]; onRefresh?: () => void }) 
       </div>
 
       {jobs.map((job) => (
-        <JobCard key={job.id} job={job} />
+        <JobCard key={job.id} job={job} onStop={onStopJob} />
       ))}
     </div>
   );
 }
 
-function JobCard({ job }: { job: Job }) {
+function JobCard({ job, onStop }: { job: Job; onStop?: (jobId: string) => Promise<void> }) {
+  const [isStopping, setIsStopping] = useState(false);
+  
   const statusColors = {
     pending: 'bg-gray-500',
     running: 'bg-orange-500',
@@ -238,6 +241,19 @@ function JobCard({ job }: { job: Job }) {
 
   const StatusIcon = statusIcons[job.status];
 
+  const handleStop = async () => {
+    if (!onStop) return;
+    
+    setIsStopping(true);
+    try {
+      await onStop(job.id);
+    } catch (error) {
+      console.error('Failed to stop job:', error);
+    } finally {
+      setIsStopping(false);
+    }
+  };
+
   return (
     <div className="bg-[var(--card-bg)] rounded-xl p-4 border border-[var(--border)] hover:border-[var(--accent-primary)] transition-all">
       <div className="flex items-start justify-between mb-3">
@@ -247,7 +263,19 @@ function JobCard({ job }: { job: Job }) {
             {job.status}
           </span>
         </div>
-        <StatusIcon size={16} className="text-[var(--text-muted)]" />
+        <div className="flex items-center gap-2">
+          <StatusIcon size={16} className="text-[var(--text-muted)]" />
+          {job.status === 'running' && onStop && (
+            <button
+              onClick={handleStop}
+              disabled={isStopping}
+              className="ml-2 p-1 rounded hover:bg-red-500/20 transition-colors disabled:opacity-50"
+              title="Stop job"
+            >
+              <StopCircle size={16} className="text-red-400" />
+            </button>
+          )}
+        </div>
       </div>
 
       <p className="text-sm text-[var(--foreground)] mb-2 line-clamp-2">

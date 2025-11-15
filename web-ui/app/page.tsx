@@ -83,6 +83,21 @@ export default function Dashboard() {
     setShowClearAllDialog(true);
   }, []);
 
+  const handleStopJob = useCallback(async (jobId: string) => {
+    try {
+      await api.stopJob(jobId);
+      // Reload jobs to reflect the cancellation
+      loadJobs();
+      loadStats();
+      // Reload conversations if we're viewing the affected session
+      if (selectedSessionId) {
+        loadConversations(selectedSessionId);
+      }
+    } catch (error) {
+      console.error('Failed to stop job:', error);
+    }
+  }, [selectedSessionId, loadJobs, loadStats, loadConversations]);
+
   const handleSendMessage = useCallback(async (message: string) => {
     if (!message.trim()) return;
 
@@ -353,6 +368,7 @@ export default function Dashboard() {
         jobs={jobs}
         isConnected={isConnected}
         onRefreshJobs={loadJobs}
+        onStopJob={handleStopJob}
       />
     </div>
     </>

@@ -29,6 +29,7 @@ export interface Job {
   estimatedCompletionMs?: number; // Estimated time to completion in ms
   estimatedTotalMs?: number; // Total estimated time in ms
   modelCount?: number; // Number of models being queried
+  abortController?: AbortController; // For cancelling running operations
 }
 
 /**
@@ -103,6 +104,7 @@ export class JobQueue {
       estimatedTotalMs: estimatedTotalMs || 300000,
       estimatedCompletionMs: estimatedTotalMs || 300000,
       modelCount: modelCount || 3,
+      abortController: new AbortController(), // Add abort controller for interrupting operations
     };
 
     this.pending.push(job);
