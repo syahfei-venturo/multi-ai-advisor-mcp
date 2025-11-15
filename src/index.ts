@@ -35,8 +35,8 @@ async function main() {
     // Print statistics
     mcpServer.printStats();
 
-    // If running in SSE mode, keep the process alive
-    if (config.mcp?.transport === 'sse') {
+    // If running in HTTP mode (SSE or Streamable), keep the process alive
+    if (config.mcp?.transport === 'sse' || config.mcp?.transport === 'streamable') {
       console.error('\n🚀 Server is running. Press Ctrl+C to stop.\n');
     }
 

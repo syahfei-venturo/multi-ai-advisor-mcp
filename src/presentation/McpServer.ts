@@ -15,13 +15,14 @@ import { registerQueryModelsTool } from './tools/QueryModelsTool.js';
 import { registerManageConversationTool } from './tools/ManageConversationTool.js';
 import { registerHealthCheckTool } from './tools/HealthCheckTool.js';
 import { registerJobManagementTools } from './tools/JobManagementTools.js';
-import { SSETransportManager, SessionFactory } from '../infrastructure/transport/SSETransportManager.js';
+import { SSETransportManager, SessionFactory as SSESessionFactory } from '../infrastructure/transport/SSETransportManager.js';
+import { StreamableHTTPTransportManager, SessionFactory } from '../infrastructure/transport/StreamableHTTPTransportManager.js';
 
 /**
  * Main MCP Server class that orchestrates all components
  */
-export class McpServer implements SessionFactory {
-  private server: BaseMcpServer | null = null; // null for SSE mode (per-session servers)
+export class McpServer implements SessionFactory, SSESessionFactory {
+  private server: BaseMcpServer | null = null; // null for HTTP-based modes (per-session servers)
   private conversationService: ConversationService;
   private ollamaService: OllamaService;
   private jobService: JobService;
@@ -32,6 +33,7 @@ export class McpServer implements SessionFactory {
   private dbConnection: ReturnType<typeof getDatabaseConnection>;
   private debugLog: (message: string) => void;
   private sseTransportManager: SSETransportManager | null = null;
+  private streamableTransportManager: StreamableHTTPTransportManager | null = null;
 
   constructor(private config: Config) {
     // Initialize debug logger
@@ -95,8 +97,10 @@ export class McpServer implements SessionFactory {
     }
 
     // Create MCP server only for stdio mode
-    // For SSE mode, servers are created per-session
-    if (config.mcp?.transport === 'stdio') {
+    // For HTTP-based modes (SSE/Streamable), servers are created per-session
+    const transportMode = config.mcp?.transport || 'stdio';
+
+    if (transportMode === 'stdio') {
       this.server = new BaseMcpServer({
         name: config.server.name,
         version: config.server.version,
@@ -104,10 +108,14 @@ export class McpServer implements SessionFactory {
 
       // Register all tools for stdio mode
       this.registerTools();
-    } else {
-      // SSE mode: setup transport manager
+    } else if (transportMode === 'sse') {
+      // SSE mode (deprecated): setup transport manager
       const sessionTimeout = config.mcp?.sessionTimeoutMinutes || 60;
       this.sseTransportManager = new SSETransportManager(this, sessionTimeout);
+    } else if (transportMode === 'streamable') {
+      // Streamable HTTP mode (recommended): setup transport manager
+      const sessionTimeout = config.mcp?.sessionTimeoutMinutes || 60;
+      this.streamableTransportManager = new StreamableHTTPTransportManager(this, sessionTimeout);
     }
   }
 
@@ -239,9 +247,11 @@ export class McpServer implements SessionFactory {
       try {
         await this.webServer.start();
 
-        // Enable MCP transport on web server if SSE mode
+        // Enable MCP transport on web server based on mode
         if (this.sseTransportManager) {
           this.webServer.enableMcpTransport(this.sseTransportManager);
+        } else if (this.streamableTransportManager) {
+          this.webServer.enableStreamableTransport(this.streamableTransportManager);
         }
       } catch (error) {
         console.error(`⚠️ Failed to start Web UI:`, error);
@@ -274,12 +284,22 @@ export class McpServer implements SessionFactory {
       await this.server.connect(transport);
       console.error(`\n✅ Multi-Model Advisor MCP Server running on stdio`);
       this.debugLog('stdio transport connected successfully');
-    } else {
-      // SSE mode: server runs persistently, clients connect via HTTP
+    } else if (transportMode === 'sse') {
+      // SSE mode (deprecated): server runs persistently, clients connect via HTTP
       const backendPort = this.config.webUI?.backendPort || 3001;
       const frontendPort = this.config.webUI?.frontendPort || 3000;
-      console.error(`\n✅ Multi-Model Advisor MCP Server running on SSE mode`);
+      console.error(`\n✅ Multi-Model Advisor MCP Server running on SSE mode (deprecated)`);
       console.error(`📡 MCP Endpoint: http://localhost:${backendPort}/mcp/sse`);
+      console.error(`📋 Session Info: http://localhost:${backendPort}/mcp/sessions`);
+      console.error(`🌐 Backend API: http://localhost:${backendPort}`);
+      console.error(`🎨 Frontend UI: http://localhost:${frontendPort}`);
+      console.error(`⚠️  Note: SSE transport is deprecated. Please migrate to 'streamable' mode.`);
+    } else if (transportMode === 'streamable') {
+      // Streamable HTTP mode: server runs persistently, clients connect via HTTP
+      const backendPort = this.config.webUI?.backendPort || 3001;
+      const frontendPort = this.config.webUI?.frontendPort || 3000;
+      console.error(`\n✅ Multi-Model Advisor MCP Server running on Streamable HTTP mode`);
+      console.error(`📡 MCP Endpoint: http://localhost:${backendPort}/mcp`);
       console.error(`📋 Session Info: http://localhost:${backendPort}/mcp/sessions`);
       console.error(`🌐 Backend API: http://localhost:${backendPort}`);
       console.error(`🎨 Frontend UI: http://localhost:${frontendPort}`);
@@ -292,9 +312,12 @@ export class McpServer implements SessionFactory {
   async shutdown() {
     console.error('\n👋 Shutting down gracefully...');
 
-    // Close all SSE sessions if in SSE mode
+    // Close all sessions based on mode
     if (this.sseTransportManager) {
       await this.sseTransportManager.closeAll();
+    }
+    if (this.streamableTransportManager) {
+      await this.streamableTransportManager.closeAll();
     }
 
     // Stop Web Server

@@ -15,9 +15,54 @@ This directory contains example clients for connecting to the Multi-Model Adviso
    ollama pull deepseek-r1:1.5b
    ```
 
-## SSE Client Example
+## Streamable HTTP Client Example (Recommended)
 
-The SSE (Server-Sent Events) client demonstrates how to connect to a persistent MCP server over HTTP instead of using stdio.
+The Streamable HTTP client demonstrates how to connect to a persistent MCP server using the new Streamable HTTP transport standard.
+
+### Start the Server
+
+First, start the MCP server in Streamable mode:
+
+```bash
+# Option 1: Using environment variable
+MCP_TRANSPORT=streamable node build/index.js
+
+# Option 2: Using CLI argument
+node build/index.js --mcp-transport streamable
+```
+
+You should see:
+```
+✅ Multi-Model Advisor MCP Server running on Streamable HTTP mode
+📡 MCP Endpoint: http://localhost:3001/mcp
+📋 Session Info: http://localhost:3001/mcp/sessions
+🌐 Backend API: http://localhost:3001
+🎨 Frontend UI: http://localhost:3000
+```
+
+### Run the Client
+
+In a **separate terminal**, run the example client:
+
+```bash
+node build/examples/streamable-client.js
+```
+
+### What the Client Does
+
+The example client demonstrates:
+1. **Connecting** to the Streamable HTTP-based MCP server
+2. **Listing** available tools
+3. **Querying models** with a question
+4. **Health check** to verify server status
+5. **Managing conversations** to view history
+6. **Disconnecting** gracefully
+
+## SSE Client Example (Deprecated)
+
+**⚠️ Note:** SSE transport is deprecated. Please use Streamable HTTP transport instead.
+
+The SSE (Server-Sent Events) client demonstrates the older HTTP transport method.
 
 ### Start the Server
 
@@ -86,21 +131,52 @@ Response example:
 }
 ```
 
-## Differences: stdio vs SSE
+## Transport Comparison
 
-| Feature | stdio (Default) | SSE (Persistent) |
-|---------|----------------|------------------|
-| **Connection** | Process spawn per client | HTTP/SSE connection |
-| **Server Lifecycle** | Dies with client | Persistent server |
-| **Multi-Client** | No (1 client per process) | Yes (multiple clients) |
-| **State Sharing** | No (isolated processes) | Yes (shared database & queue) |
-| **Discovery** | Requires Claude Desktop config | HTTP endpoint |
-| **Monitoring** | Limited | `/mcp/sessions` endpoint |
-| **Use Case** | Claude Desktop integration | Programmatic access, APIs |
+| Feature | stdio (Default) | SSE (Deprecated) | Streamable HTTP (Recommended) |
+|---------|----------------|------------------|-------------------------------|
+| **Connection** | Process spawn per client | HTTP/SSE connection | HTTP POST/GET |
+| **Server Lifecycle** | Dies with client | Persistent server | Persistent server |
+| **Multi-Client** | No (1 client per process) | Yes (multiple clients) | Yes (multiple clients) |
+| **State Sharing** | No (isolated processes) | Yes (shared DB & queue) | Yes (shared DB & queue) |
+| **Discovery** | Requires Claude Desktop config | HTTP endpoint | HTTP endpoint |
+| **Monitoring** | Limited | `/mcp/sessions` endpoint | `/mcp/sessions` endpoint |
+| **Standard** | MCP standard | Deprecated | MCP standard (current) |
+| **Use Case** | Claude Desktop | Legacy HTTP clients | Modern HTTP clients, APIs |
 
-## Advanced: Custom Client
+## Advanced: Custom Clients
 
-You can build your own client using the MCP SDK:
+### Streamable HTTP Client (Recommended)
+
+```typescript
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+
+const transport = new StreamableHTTPClientTransport(
+  new URL('http://localhost:3001/mcp')
+);
+
+const client = new Client({
+  name: 'my-custom-client',
+  version: '1.0.0',
+}, {
+  capabilities: { tools: {} },
+});
+
+await client.connect(transport);
+
+// Use the client
+const result = await client.callTool({
+  name: 'query-models',
+  arguments: { question: 'Hello!', async: false },
+});
+
+console.log(result);
+
+await client.close();
+```
+
+### SSE Client (Deprecated)
 
 ```typescript
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';

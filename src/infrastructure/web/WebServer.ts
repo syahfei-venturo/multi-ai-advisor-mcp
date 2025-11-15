@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import type { IConversationRepository } from '../../core/interfaces/IConversationRepository.js';
 import type { IJobRepository } from '../../core/interfaces/IJobRepository.js';
 import type { SSETransportManager } from '../transport/SSETransportManager.js';
+import type { StreamableHTTPTransportManager } from '../transport/StreamableHTTPTransportManager.js';
 import type { JobService } from '../../application/services/JobService.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +19,7 @@ export class WebServer {
   private wss: WebSocketServer | null = null;
   private clients: Set<WebSocket> = new Set();
   private sseTransportManager: SSETransportManager | null = null;
+  private streamableTransportManager: StreamableHTTPTransportManager | null = null;
 
   constructor(
     private conversationRepo: IConversationRepository,
@@ -31,11 +33,19 @@ export class WebServer {
   }
 
   /**
-   * Enable SSE-based MCP transport
+   * Enable SSE-based MCP transport (deprecated)
    */
   public enableMcpTransport(manager: SSETransportManager): void {
     this.sseTransportManager = manager;
     this.setupMcpRoutes();
+  }
+
+  /**
+   * Enable Streamable HTTP-based MCP transport (recommended)
+   */
+  public enableStreamableTransport(manager: StreamableHTTPTransportManager): void {
+    this.streamableTransportManager = manager;
+    this.setupStreamableRoutes();
   }
 
   private setupMiddleware(): void {
@@ -176,7 +186,7 @@ export class WebServer {
   }
 
   /**
-   * Setup MCP SSE routes
+   * Setup MCP SSE routes (deprecated)
    */
   private setupMcpRoutes(): void {
     if (!this.sseTransportManager) {
@@ -242,10 +252,71 @@ export class WebServer {
       }
     });
 
-    console.log('[WebServer] MCP SSE routes registered:');
+    console.log('[WebServer] MCP SSE routes registered (deprecated):');
     console.log('  GET  /mcp/sse - Establish SSE connection (auto-generate session)');
     console.log('  GET  /mcp/sse/:sessionId - Establish SSE connection (specific session)');
     console.log('  POST /mcp/messages/:sessionId - Send messages');
+    console.log('  GET  /mcp/sessions - View active sessions');
+  }
+
+  /**
+   * Setup Streamable HTTP routes (recommended)
+   */
+  private setupStreamableRoutes(): void {
+    if (!this.streamableTransportManager) {
+      console.warn('[WebServer] Streamable HTTP Transport Manager not initialized');
+      return;
+    }
+
+    // Single endpoint for MCP communication
+    const MCP_ENDPOINT = '/mcp';
+
+    // POST endpoint - main communication (initialize and messages)
+    this.app.post(MCP_ENDPOINT, async (req: Request, res: Response) => {
+      try {
+        await this.streamableTransportManager!.handlePostRequest(req, res);
+      } catch (error) {
+        console.error('[WebServer] Error handling POST request:', error);
+        res.status(500).json({
+          error: 'Failed to handle request',
+          details: error instanceof Error ? error.message : String(error)
+        });
+      }
+    });
+
+    // GET endpoint - optional SSE streaming support
+    this.app.get(MCP_ENDPOINT, async (req: Request, res: Response) => {
+      try {
+        await this.streamableTransportManager!.handleGetRequest(req, res);
+      } catch (error) {
+        console.error('[WebServer] Error handling GET request:', error);
+        res.status(500).json({
+          error: 'Failed to handle request',
+          details: error instanceof Error ? error.message : String(error)
+        });
+      }
+    });
+
+    // Session info endpoint (for debugging)
+    this.app.get('/mcp/sessions', (req: Request, res: Response) => {
+      try {
+        const sessions = this.streamableTransportManager!.getSessionInfo();
+        res.json({
+          success: true,
+          activeSessionCount: this.streamableTransportManager!.getActiveSessionCount(),
+          sessions
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    console.log('[WebServer] MCP Streamable HTTP routes registered:');
+    console.log('  POST /mcp - Main communication endpoint');
+    console.log('  GET  /mcp - Optional SSE streaming');
     console.log('  GET  /mcp/sessions - View active sessions');
   }
 

@@ -42,7 +42,7 @@ export interface Config {
     backendPort: number;   // Express API + MCP SSE port
   };
   mcp?: {
-    transport: 'stdio' | 'sse';
+    transport: 'stdio' | 'sse' | 'streamable';
     sessionTimeoutMinutes: number;
   };
 }
@@ -76,7 +76,7 @@ const ConfigSchema = z.object({
     backendPort: z.number().int().min(1024).max(65535),
   }).optional(),
   mcp: z.object({
-    transport: z.enum(['stdio', 'sse']),
+    transport: z.enum(['stdio', 'sse', 'streamable']),
     sessionTimeoutMinutes: z.number().int().min(5).max(1440),
   }).optional(),
 });
@@ -256,7 +256,7 @@ export function getConfig(): Config {
 
   // MCP configuration
   const mcpConfig = {
-    transport: (cliArgs['mcp-transport'] || process.env.MCP_TRANSPORT || 'stdio') as 'stdio' | 'sse',
+    transport: (cliArgs['mcp-transport'] || process.env.MCP_TRANSPORT || 'stdio') as 'stdio' | 'sse' | 'streamable',
     sessionTimeoutMinutes: getNumber('mcp-session-timeout', 'MCP_SESSION_TIMEOUT_MINUTES', 60),
   };
 
@@ -339,7 +339,10 @@ export function printConfigInfo(config: Config): void {
 
   // MCP Transport
   if (config.mcp) {
-    console.error(`\n📡 MCP: ${config.mcp.transport.toUpperCase()} mode ${config.mcp.transport === 'sse' ? `(session timeout: ${config.mcp.sessionTimeoutMinutes}m)` : ''}`);
+    const transportLabel = config.mcp.transport === 'streamable' ? 'STREAMABLE HTTP' : config.mcp.transport.toUpperCase();
+    const isHttpMode = config.mcp.transport === 'sse' || config.mcp.transport === 'streamable';
+    const deprecated = config.mcp.transport === 'sse' ? ' (deprecated)' : '';
+    console.error(`\n📡 MCP: ${transportLabel} mode${deprecated} ${isHttpMode ? `(session timeout: ${config.mcp.sessionTimeoutMinutes}m)` : ''}`);
   }
 
   console.error('\n' + '─'.repeat(68));
