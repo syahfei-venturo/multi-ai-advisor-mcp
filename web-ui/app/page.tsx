@@ -186,6 +186,12 @@ export default function Dashboard() {
           const status = message.status || 'completed';
           if (status === 'completed' || status === 'failed' || status === 'cancelled') {
             setIsLoading(false);
+            
+            // Reload conversations if a session is selected
+            if (message.sessionId && message.sessionId === selectedSessionId) {
+              console.log('Reloading conversations for session:', message.sessionId);
+              loadConversations(message.sessionId);
+            }
           }
           break;
       }

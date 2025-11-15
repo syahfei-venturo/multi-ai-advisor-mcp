@@ -13,7 +13,7 @@ export function registerQueryModelsTool(
   defaultModels: string[],
   debugLog: (message: string) => void,
   notifyConversationUpdate: (sessionId: string) => void,
-  notifyJobUpdate: (jobId: string, status: string) => void,
+  notifyJobUpdate: (jobId: string, status: string, sessionId?: string) => void,
   conversationRepo: any
 ) {
   // Setup job execution handler
@@ -58,7 +58,7 @@ export function registerQueryModelsTool(
       }
 
       // Notify WebUI about job completion
-      notifyJobUpdate(job.id, 'completed');
+      notifyJobUpdate(job.id, 'completed', sessionId);
     }
   });
 

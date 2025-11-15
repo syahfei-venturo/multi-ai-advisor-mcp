@@ -160,8 +160,8 @@ export class McpServer implements SessionFactory, SSESessionFactory {
       this.notifyConversationUpdate(sessionId);
     };
 
-    const notifyJobUpdate = (jobId: string, status: string) => {
-      this.notifyJobUpdate(jobId, status);
+    const notifyJobUpdate = (jobId: string, status: string, sessionId?: string) => {
+      this.notifyJobUpdate(jobId, status, sessionId);
     };
 
     // Setup job execution handler
@@ -240,7 +240,7 @@ export class McpServer implements SessionFactory, SSESessionFactory {
         notifyConversationUpdate(sessionId);
 
         // Notify WebUI about job completion
-        notifyJobUpdate(job.id, job.status);
+        notifyJobUpdate(job.id, job.status, sessionId);
       }
     });
   }
@@ -254,8 +254,8 @@ export class McpServer implements SessionFactory, SSESessionFactory {
       this.notifyConversationUpdate(sessionId);
     };
 
-    const notifyJobUpdate = (jobId: string, status: string) => {
-      this.notifyJobUpdate(jobId, status);
+    const notifyJobUpdate = (jobId: string, status: string, sessionId?: string) => {
+      this.notifyJobUpdate(jobId, status, sessionId);
     };
 
     registerQueryModelsTool(
@@ -445,9 +445,9 @@ export class McpServer implements SessionFactory, SSESessionFactory {
   /**
    * Notify web UI of job updates
    */
-  notifyJobUpdate(jobId: string, status: string) {
+  notifyJobUpdate(jobId: string, status: string, sessionId?: string) {
     if (this.webServer) {
-      this.webServer.notifyJobUpdate(jobId, status);
+      this.webServer.notifyJobUpdate(jobId, status, sessionId);
     }
   }
 }

@@ -514,11 +514,12 @@ export class WebServer {
     });
   }
 
-  public notifyJobUpdate(jobId: string, status: string): void {
+  public notifyJobUpdate(jobId: string, status: string, sessionId?: string): void {
     this.broadcast({
       type: 'job_updated',
       jobId,
       status,
+      sessionId,
       timestamp: new Date().toISOString()
     });
   }
