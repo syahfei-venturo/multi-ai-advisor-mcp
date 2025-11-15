@@ -27,6 +27,7 @@ export class SSETransportManager {
   private sessions = new Map<string, McpSession>();
   private sessionFactory: SessionFactory;
   private sessionTimeout: number; // milliseconds
+  private clientSessions = new Map<string, string>(); // clientId -> sessionId mapping
 
   constructor(sessionFactory: SessionFactory, sessionTimeoutMinutes = 60) {
     this.sessionFactory = sessionFactory;
@@ -41,7 +42,14 @@ export class SSETransportManager {
    * Creates new session or returns existing one
    */
   async handleSSEConnection(req: Request, res: Response): Promise<string> {
-    const sessionId = req.params.sessionId || randomUUID();
+    const requestedSessionId = req.params.sessionId;
+
+    // Try to detect client and reuse existing session
+    const clientId = req.headers['user-agent'] || req.ip || 'unknown';
+    const existingSessionId = this.clientSessions.get(clientId);
+
+    // If client has existing session and no specific sessionId requested, reuse it
+    const sessionId = requestedSessionId || existingSessionId || randomUUID();
 
     let session = this.sessions.get(sessionId);
 
@@ -60,6 +68,9 @@ export class SSETransportManager {
       };
 
       this.sessions.set(sessionId, session);
+
+      // Map client to session for future reconnections
+      this.clientSessions.set(clientId, sessionId);
 
       // Handle transport closure BEFORE connecting
       // (must be set before connect() to catch any immediate errors)
@@ -94,13 +105,18 @@ export class SSETransportManager {
         }
       }, 30000); // 30 seconds
 
-      console.error(`[SSETransportManager] New session created: ${sessionId}`);
+      console.error(`[SSETransportManager] New session created: ${sessionId} for client: ${clientId}`);
     } else {
-      // Update existing session with new response object
+      // Reusing existing session
       session.lastActivity = new Date();
-      // Note: SSEServerTransport doesn't support response replacement
-      // Client should use the same SSE connection
-      console.error(`[SSETransportManager] Reusing existing session: ${sessionId}`);
+
+      // Update client mapping
+      this.clientSessions.set(clientId, sessionId);
+
+      console.error(`[SSETransportManager] ♻️ Reusing existing session: ${sessionId} for client: ${clientId}`);
+
+      // Note: We can't replace the response object in existing transport
+      // But we can keep the session alive and MCP state intact
     }
 
     return sessionId;
@@ -114,6 +130,8 @@ export class SSETransportManager {
     const session = this.sessions.get(sessionId);
 
     if (!session) {
+      console.error(`[SSETransportManager] ❌ Session not found: ${sessionId}`);
+      console.error(`[SSETransportManager] Active sessions: ${Array.from(this.sessions.keys()).join(', ')}`);
       res.status(404).json({
         error: 'Session not found',
         sessionId,
@@ -128,7 +146,7 @@ export class SSETransportManager {
       // Forward message to the session's transport
       await session.transport.handlePostMessage(req, res, req.body);
     } catch (error) {
-      console.error(`[SSETransportManager] Error handling message for session ${sessionId}:`, error);
+      console.error(`[SSETransportManager] ❌ Error handling message for session ${sessionId}:`, error);
       res.status(500).json({
         error: 'Failed to process message',
         details: error instanceof Error ? error.message : String(error)
@@ -146,6 +164,14 @@ export class SSETransportManager {
     // CRITICAL: Remove from map FIRST to prevent circular calls
     // (transport.close() triggers onclose which would call removeSession again)
     this.sessions.delete(sessionId);
+
+    // Also remove from client mapping
+    for (const [clientId, mappedSessionId] of this.clientSessions.entries()) {
+      if (mappedSessionId === sessionId) {
+        this.clientSessions.delete(clientId);
+        break;
+      }
+    }
 
     try {
       // Clear heartbeat interval
