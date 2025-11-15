@@ -289,6 +289,7 @@ export default function Dashboard() {
           }}
           onClearAll={handleClearAllClick}
           activeSessionId={selectedSessionId || undefined}
+          jobs={jobs}
         />
       </div>
 

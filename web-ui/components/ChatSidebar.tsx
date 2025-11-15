@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Search, Plus, MessageCircle, Settings, User } from 'lucide-react';
+import type { Job } from '@/types';
 
 interface ChatSession {
   id: string;
@@ -16,6 +17,7 @@ interface ChatSidebarProps {
   onSelectSession?: (sessionId: string) => void;
   onClearAll?: () => void;
   activeSessionId?: string;
+  jobs?: Job[];
 }
 
 export function ChatSidebar({
@@ -23,7 +25,8 @@ export function ChatSidebar({
   onNewChat,
   onSelectSession,
   onClearAll,
-  activeSessionId
+  activeSessionId,
+  jobs = []
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -99,6 +102,7 @@ export function ChatSidebar({
                 session={session}
                 isActive={session.id === activeSessionId}
                 onClick={() => onSelectSession?.(session.id)}
+                hasRunningJobs={jobs.some(job => job.session_id === session.id && job.status === 'running')}
               />
             ))}
           </div>
@@ -116,6 +120,7 @@ export function ChatSidebar({
                 session={session}
                 isActive={session.id === activeSessionId}
                 onClick={() => onSelectSession?.(session.id)}
+                hasRunningJobs={jobs.some(job => job.session_id === session.id && job.status === 'running')}
               />
             ))}
           </div>
@@ -133,6 +138,7 @@ export function ChatSidebar({
                 session={session}
                 isActive={session.id === activeSessionId}
                 onClick={() => onSelectSession?.(session.id)}
+                hasRunningJobs={jobs.some(job => job.session_id === session.id && job.status === 'running')}
               />
             ))}
           </div>
@@ -167,9 +173,10 @@ interface ConversationItemProps {
   session: ChatSession;
   isActive?: boolean;
   onClick?: () => void;
+  hasRunningJobs?: boolean;
 }
 
-function ConversationItem({ session, isActive, onClick }: ConversationItemProps) {
+function ConversationItem({ session, isActive, onClick, hasRunningJobs = false }: ConversationItemProps) {
   return (
     <button
       onClick={onClick}
@@ -179,8 +186,20 @@ function ConversationItem({ session, isActive, onClick }: ConversationItemProps)
           : 'hover:bg-[var(--card-bg)] text-[var(--text-secondary)]'
       }`}
     >
-      <MessageCircle size={16} className="flex-shrink-0" />
+      <div className="relative flex-shrink-0">
+        <MessageCircle size={16} />
+        {hasRunningJobs && (
+          <div className="absolute -top-1 -right-1 w-3 h-3 bg-orange-500 rounded-full animate-pulse" />
+        )}
+      </div>
       <span className="text-sm font-medium truncate flex-1">{session.title}</span>
+      {hasRunningJobs && (
+        <div className="flex gap-1 flex-shrink-0">
+          <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)] animate-bounce" style={{ animationDelay: '0ms' }}></div>
+          <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)] animate-bounce" style={{ animationDelay: '150ms' }}></div>
+          <div className="w-1.5 h-1.5 rounded-full bg-[var(--accent-primary)] animate-bounce" style={{ animationDelay: '300ms' }}></div>
+        </div>
+      )}
     </button>
   );
 }
