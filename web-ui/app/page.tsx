@@ -117,14 +117,25 @@ export default function Dashboard() {
 
       switch (message.type) {
         case 'conversation_updated':
-          if (message.sessionId === selectedSessionId) {
-            loadConversations(message.sessionId);
-          }
+          console.log('Conversation updated for session:', message.sessionId);
+
+          // Always reload sessions to update the list
           loadSessions();
+
+          // Reload conversations if this is the currently selected session
+          if (message.sessionId === selectedSessionId) {
+            console.log('Reloading conversations for selected session');
+            loadConversations(message.sessionId);
+          } else {
+            console.log('Session not selected, only reloading sessions list');
+          }
+
+          // Reload stats
           loadStats();
           break;
 
         case 'conversation_cleared':
+          console.log('Conversation cleared for session:', message.sessionId);
           if (message.sessionId === selectedSessionId) {
             setConversations([]);
           }
@@ -133,6 +144,7 @@ export default function Dashboard() {
 
         case 'job_updated':
         case 'job_cancelled':
+          console.log('Job updated:', message.jobId, message.status);
           loadJobs();
           loadStats();
           break;
