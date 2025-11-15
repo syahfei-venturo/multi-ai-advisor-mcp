@@ -120,7 +120,9 @@ export function registerQueryModelsTool(
             session_id: sessionId,
             include_history,
           },
-          modelsCount
+          undefined,
+          modelsCount,
+          defaultModels
         );
 
         debugLog(`Query job submitted: ${jobId}`);

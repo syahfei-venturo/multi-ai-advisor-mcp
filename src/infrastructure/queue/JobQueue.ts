@@ -29,6 +29,7 @@ export interface Job {
   estimatedCompletionMs?: number; // Estimated time to completion in ms
   estimatedTotalMs?: number; // Total estimated time in ms
   modelCount?: number; // Number of models being queried
+  models?: string[]; // List of model names being queried
   abortController?: AbortController; // For cancelling running operations
 }
 
@@ -91,7 +92,8 @@ export class JobQueue {
     type: 'query-models',
     input: Record<string, unknown>,
     estimatedTotalMs?: number,
-    modelCount?: number
+    modelCount?: number,
+    models?: string[]
   ): string {
     const job: Job = {
       id: generateId(),
@@ -104,6 +106,7 @@ export class JobQueue {
       estimatedTotalMs: estimatedTotalMs || 300000,
       estimatedCompletionMs: estimatedTotalMs || 300000,
       modelCount: modelCount || 3,
+      models: models, // Store list of models being queried
       abortController: new AbortController(), // Add abort controller for interrupting operations
     };
 
@@ -347,7 +350,13 @@ export class JobQueue {
     jobs.push(...this.pending);
     jobs.push(...this.running.values());
     jobs.push(...this.completed.values());
-    return jobs;
+
+    // Sort by creation time (newest first)
+    return jobs.sort((a, b) => {
+      const timeA = new Date(a.createdAt).getTime();
+      const timeB = new Date(b.createdAt).getTime();
+      return timeB - timeA; // Descending order (newest first)
+    });
   }
 
   /**

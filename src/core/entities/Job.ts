@@ -16,6 +16,7 @@ export interface Job {
   estimatedCompletionMs?: number;
   estimatedTotalMs?: number;
   modelCount?: number;
+  models?: string[]; // List of model names being queried
 }
 
 export interface ProgressUpdate {

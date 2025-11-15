@@ -18,9 +18,10 @@ export class JobService {
     type: 'query-models',
     input: Record<string, unknown>,
     estimatedTotalMs?: number,
-    modelCount?: number
+    modelCount?: number,
+    models?: string[]
   ): string {
-    return this.jobQueue.submitJob(type, input, estimatedTotalMs, modelCount);
+    return this.jobQueue.submitJob(type, input, estimatedTotalMs, modelCount, models);
   }
 
   /**

@@ -235,12 +235,15 @@ export class McpServer implements SessionFactory, SSESessionFactory {
         const sessionId = input.session_id;
 
         this.debugLog(`[QueryModels] Job ${job.id} completed, notifying session ${sessionId}`);
+        console.log(`[QueryModels] Job ${job.id} completed with status: ${job.status}, session: ${sessionId}`);
 
         // Notify WebUI about conversation update
         notifyConversationUpdate(sessionId);
+        console.log(`[QueryModels] Sent conversation_updated notification for session ${sessionId}`);
 
         // Notify WebUI about job completion
         notifyJobUpdate(job.id, job.status, sessionId);
+        console.log(`[QueryModels] Sent job_updated notification for job ${job.id}, status: ${job.status}`);
       }
     });
   }

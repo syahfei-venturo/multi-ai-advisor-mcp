@@ -15,11 +15,16 @@ import type { ConversationService } from '../../application/services/Conversatio
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Extend WebSocket type to include isAlive property for heartbeat
+interface WebSocketWithHeartbeat extends WebSocket {
+  isAlive?: boolean;
+}
+
 export class WebServer {
   private app: Express;
   private httpServer: HttpServer | null = null;
   private wss: WebSocketServer | null = null;
-  private clients: Set<WebSocket> = new Set();
+  private clients: Set<WebSocketWithHeartbeat> = new Set();
   private sseTransportManager: SSETransportManager | null = null;
   private streamableTransportManager: StreamableHTTPTransportManager | null = null;
 
@@ -153,7 +158,8 @@ export class WebServer {
             results: job.result ? JSON.stringify(job.result) : null,
             error: job.error,
             session_id: job.input?.session_id || undefined,
-            model_name: model_name
+            model_name: model_name,
+            models: job.models || []
           };
         });
         res.json({ success: true, data: serializedJobs });
@@ -478,13 +484,15 @@ export class WebServer {
 
     this.wss = new WebSocketServer({ server: this.httpServer });
 
-    this.wss.on('connection', (ws: WebSocket) => {
+    this.wss.on('connection', (ws: WebSocketWithHeartbeat) => {
       // Only log connections in debug mode to reduce spam
       this.clients.add(ws);
+      console.log(`[WebServer] WebSocket client connected. Total clients: ${this.clients.size}`);
 
       ws.on('close', () => {
         // Silent disconnect - don't spam logs
         this.clients.delete(ws);
+        console.log(`[WebServer] WebSocket client disconnected. Total clients: ${this.clients.size}`);
       });
 
       ws.on('error', (error) => {
@@ -492,13 +500,43 @@ export class WebServer {
         this.clients.delete(ws);
       });
 
+      // Setup ping/pong for connection health
+      ws.isAlive = true;
+      ws.on('pong', () => {
+        ws.isAlive = true;
+      });
+
       // Send initial connection confirmation
       ws.send(JSON.stringify({ type: 'connected', timestamp: new Date().toISOString() }));
+    });
+
+    // Heartbeat to detect and remove dead connections
+    const heartbeatInterval = setInterval(() => {
+      if (!this.wss) return;
+
+      this.wss.clients.forEach((ws: WebSocketWithHeartbeat) => {
+        if (ws.isAlive === false) {
+          console.log('[WebServer] Terminating dead WebSocket connection');
+          this.clients.delete(ws);
+          return ws.terminate();
+        }
+
+        ws.isAlive = false;
+        ws.ping();
+      });
+    }, 30000); // Check every 30 seconds
+
+    // Clean up interval when server stops
+    this.wss.on('close', () => {
+      clearInterval(heartbeatInterval);
     });
   }
 
   public broadcast(message: any): void {
     const payload = JSON.stringify(message);
+    const connectedClients = Array.from(this.clients).filter(c => c.readyState === WebSocket.OPEN).length;
+    console.log(`[WebServer] Broadcasting to ${connectedClients} connected clients:`, message.type);
+
     this.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
         client.send(payload);

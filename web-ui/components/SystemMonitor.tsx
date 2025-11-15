@@ -213,9 +213,11 @@ function JobsView({ jobs, onRefresh, onStopJob }: { jobs: Job[]; onRefresh?: () 
         </button>
       </div>
 
-      {jobs.map((job) => (
-        <JobCard key={job.id} job={job} onStop={onStopJob} />
-      ))}
+      {jobs
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .map((job) => (
+          <JobCard key={job.id} job={job} onStop={onStopJob} />
+        ))}
     </div>
   );
 }
@@ -299,7 +301,19 @@ function JobCard({ job, onStop }: { job: Job; onStop?: (jobId: string) => Promis
       </p>
 
       <div className="mb-3 space-y-2">
-        {job.model_name && (
+        {job.models && job.models.length > 0 && (
+          <div className="flex flex-col text-xs">
+            <span className="text-[var(--text-secondary)] mb-1">Models:</span>
+            <div className="flex flex-wrap gap-1">
+              {job.models.map((model, idx) => (
+                <span key={idx} className="px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded text-xs">
+                  {model}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {job.model_name && !job.models?.length && (
           <div className="flex items-center justify-between text-xs">
             <span className="text-[var(--text-secondary)]">model name</span>
             <span className="px-2 py-0.5 bg-purple-500/20 text-purple-300 rounded">{job.model_name}</span>
