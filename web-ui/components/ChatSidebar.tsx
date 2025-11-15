@@ -69,9 +69,9 @@ export function ChatSidebar({
         </button>
 
         {/* Search Button */}
-        <button className="mt-3 w-12 h-12 bg-[var(--card-bg)] hover:bg-[var(--border)] rounded-full flex items-center justify-center transition-colors mx-auto">
+        {/* <button className="mt-3 w-12 h-12 bg-[var(--card-bg)] hover:bg-[var(--border)] rounded-full flex items-center justify-center transition-colors mx-auto">
           <Search size={18} className="text-[var(--text-secondary)]" />
-        </button>
+        </button> */}
       </div>
 
       {/* Conversations List */}
