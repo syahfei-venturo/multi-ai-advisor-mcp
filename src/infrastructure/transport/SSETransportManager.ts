@@ -60,16 +60,15 @@ export class SSETransportManager {
 
       this.sessions.set(sessionId, session);
 
-      // Connect server to transport
-      await server.connect(transport);
-
-      // Handle transport closure
+      // Handle transport closure BEFORE connecting
+      // (must be set before connect() to catch any immediate errors)
       transport.onclose = () => {
         this.removeSession(sessionId);
       };
 
-      // Start SSE stream
-      await transport.start();
+      // Connect server to transport
+      // NOTE: server.connect() automatically calls transport.start()
+      await server.connect(transport);
 
       console.error(`[SSETransportManager] New session created: ${sessionId}`);
     } else {
@@ -120,10 +119,16 @@ export class SSETransportManager {
     const session = this.sessions.get(sessionId);
     if (!session) return;
 
+    // CRITICAL: Remove from map FIRST to prevent circular calls
+    // (transport.close() triggers onclose which would call removeSession again)
+    this.sessions.delete(sessionId);
+
     try {
+      // Clear the onclose handler to prevent re-entry
+      session.transport.onclose = undefined;
+
       await session.transport.close();
       await session.server.close();
-      this.sessions.delete(sessionId);
       console.error(`[SSETransportManager] Session removed: ${sessionId}`);
     } catch (error) {
       console.error(`[SSETransportManager] Error removing session ${sessionId}:`, error);
