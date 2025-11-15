@@ -123,10 +123,13 @@ export function registerQueryModelsTool(
           const pollInterval = 1000; // Check every 1 second
           const startTime = Date.now();
 
+          debugLog(`Starting to wait for job ${jobId} completion (max wait: ${maxWaitTime}ms)`);
+
           while (Date.now() - startTime < maxWaitTime) {
             const job = jobService.getJobStatus(jobId);
 
             if (!job) {
+              debugLog(`Job ${jobId} not found in queue`);
               return {
                 isError: true,
                 content: [
@@ -138,20 +141,34 @@ export function registerQueryModelsTool(
               };
             }
 
+            debugLog(`Job ${jobId} status: ${job.status}, progress: ${job.progress}%`);
+
             if (job.status === 'completed') {
               const result = jobService.getJobResult(jobId);
+
+              // Debug logging
+              debugLog(`Job ${jobId} completed. Result exists: ${!!result}`);
+              if (result) {
+                debugLog(`Result type: ${typeof result}, keys: ${Object.keys(result as any).join(', ')}`);
+              }
+
               if (!result) {
+                // Additional debugging - check job object directly
+                debugLog(`Job object: ${JSON.stringify(job, null, 2)}`);
+
                 return {
                   isError: true,
                   content: [
                     {
                       type: 'text',
-                      text: `Job completed but no result found for job ID: ${jobId}`,
+                      text: `Job completed but no result found for job ID: ${jobId}\n\nJob status: ${JSON.stringify(job, null, 2)}`,
                     },
                   ],
                 };
               }
 
+              // Format the result as a proper MCP response
+              debugLog(`Returning successful result for job ${jobId}`);
               return {
                 content: [
                   {
@@ -232,13 +249,18 @@ get-job-result(job_id="${jobId}")
           ],
         };
       } catch (error) {
-        console.error('Error in query-models tool:', error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : '';
+        console.error('Error in query-models tool:', errorMessage);
+        console.error('Stack trace:', errorStack);
+        debugLog(`Exception in query-models: ${errorMessage}\nStack: ${errorStack}`);
+
         return {
           isError: true,
           content: [
             {
               type: 'text',
-              text: `Error submitting query job: ${error instanceof Error ? error.message : String(error)}`,
+              text: `Error submitting query job: ${errorMessage}`,
             },
           ],
         };
