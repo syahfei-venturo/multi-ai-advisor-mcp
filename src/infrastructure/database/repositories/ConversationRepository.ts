@@ -87,14 +87,27 @@ export class ConversationRepository implements IConversationRepository {
     };
   }
 
-  getAllSessions(): Array<{ session_id: string; last_updated: string }> {
+  getAllSessions(): Array<{ session_id: string; last_updated: string; first_message?: string }> {
     const stmt = this.db.prepare(`
-      SELECT c.session_id, MAX(c.created_at) as last_updated
+      SELECT
+        c.session_id,
+        MAX(c.created_at) as last_updated,
+        (SELECT content FROM conversations WHERE session_id = c.session_id AND role = 'user' ORDER BY message_index LIMIT 1) as first_message
       FROM conversations c
       GROUP BY c.session_id
+
+      UNION
+
+      SELECT
+        sm.session_id,
+        sm.last_accessed as last_updated,
+        NULL as first_message
+      FROM session_metadata sm
+      WHERE sm.session_id NOT IN (SELECT DISTINCT session_id FROM conversations)
+
       ORDER BY last_updated DESC
     `);
-    return stmt.all() as Array<{ session_id: string; last_updated: string }>;
+    return stmt.all() as Array<{ session_id: string; last_updated: string; first_message?: string }>;
   }
 
   getSessionMetadata(sessionId: string): any {
@@ -151,6 +164,17 @@ export class ConversationRepository implements IConversationRepository {
     `);
 
     stmt.run(sessionId, messageCount);
+  }
+
+  /**
+   * Create session metadata (called when session is created but before first message)
+   */
+  createSession(sessionId: string): void {
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO session_metadata (session_id, last_accessed, message_count)
+      VALUES (?, CURRENT_TIMESTAMP, 0)
+    `);
+    stmt.run(sessionId);
   }
 
   // Web UI support methods

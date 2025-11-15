@@ -157,7 +157,8 @@ export class McpServer implements SessionFactory {
       this.config.ollama.models,
       this.debugLog,
       notifyConversationUpdate,
-      notifyJobUpdate
+      notifyJobUpdate,
+      this.conversationRepo
     );
 
     registerManageConversationTool(server, this.conversationService, notifyConversationUpdate);

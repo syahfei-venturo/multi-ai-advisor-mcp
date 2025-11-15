@@ -176,12 +176,29 @@ export default function Dashboard() {
   }, [loadStats, loadJobs]);
 
   // Convert sessions to chat sessions format
-  const chatSessions = sessions.map(session => ({
-    id: session.session_id,
-    title: session.session_id.substring(0, 30) || 'New conversation',
-    timestamp: new Date(session.last_updated),
-    isActive: session.session_id === selectedSessionId
-  }));
+  const chatSessions = sessions.map(session => {
+    // Create a descriptive title from first message or session ID
+    let title = 'New conversation';
+    if (session.first_message) {
+      // Use first 50 chars of first message as title
+      title = session.first_message.substring(0, 50);
+      if (session.first_message.length > 50) {
+        title += '...';
+      }
+    } else if (session.session_id.startsWith('session_')) {
+      title = 'New conversation';
+    } else {
+      // Use session ID if it's not auto-generated
+      title = session.session_id.substring(0, 30);
+    }
+
+    return {
+      id: session.session_id,
+      title,
+      timestamp: new Date(session.last_updated),
+      isActive: session.session_id === selectedSessionId
+    };
+  });
 
   // Convert conversations to messages format
   const messages = conversations.map((conv, index) => ({

@@ -12,6 +12,7 @@ export interface ConversationMessage {
 export interface Session {
   session_id: string;
   last_updated: string;
+  first_message?: string;
 }
 
 export interface Job {

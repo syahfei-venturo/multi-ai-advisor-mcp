@@ -36,12 +36,17 @@ export function ChatSidebar({
 
   const now = new Date();
   filteredSessions.forEach(session => {
-    const diffTime = Math.abs(now.getTime() - session.timestamp.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    // Calculate days difference using local time
+    const sessionDate = new Date(session.timestamp);
+    const nowLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const sessionLocal = new Date(sessionDate.getFullYear(), sessionDate.getMonth(), sessionDate.getDate());
+
+    const diffTime = nowLocal.getTime() - sessionLocal.getTime();
+    const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
     if (diffDays === 0) {
       today.push(session);
-    } else if (diffDays <= 7) {
+    } else if (diffDays > 0 && diffDays <= 7) {
       last7Days.push(session);
     } else {
       older.push(session);

@@ -13,7 +13,8 @@ export function registerQueryModelsTool(
   defaultModels: string[],
   debugLog: (message: string) => void,
   notifyConversationUpdate: (sessionId: string) => void,
-  notifyJobUpdate: (jobId: string, status: string) => void
+  notifyJobUpdate: (jobId: string, status: string) => void,
+  conversationRepo: any
 ) {
   // Setup job execution handler
   jobService.onJobStarted(async (job) => {
@@ -102,6 +103,14 @@ export function registerQueryModelsTool(
       try {
         const modelsCount = defaultModels.length;
 
+        // Ensure session exists (create if new)
+        const sessionId = session_id || `session_${Date.now()}`;
+        conversationRepo.createSession(sessionId);
+
+        // Notify immediately that session was created
+        notifyConversationUpdate(sessionId);
+        debugLog(`Session created/ensured: ${sessionId}`);
+
         // Submit job to queue (non-blocking)
         const jobId = jobService.submitJob(
           'query-models',
@@ -109,7 +118,7 @@ export function registerQueryModelsTool(
             question,
             system_prompt,
             model_system_prompts,
-            session_id: session_id || `session_${Date.now()}`,
+            session_id: sessionId,
             include_history,
           },
           modelsCount

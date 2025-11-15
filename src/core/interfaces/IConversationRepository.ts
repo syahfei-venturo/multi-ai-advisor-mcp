@@ -15,7 +15,9 @@ export interface IConversationRepository {
 
   loadSessionHistory(sessionId: string): ConversationMessageRecord[];
 
-  getAllSessions(): Array<{ session_id: string; last_updated: string }>;
+  getAllSessions(): Array<{ session_id: string; last_updated: string; first_message?: string }>;
+
+  createSession(sessionId: string): void;
 
   deleteSession(sessionId: string): void;
 

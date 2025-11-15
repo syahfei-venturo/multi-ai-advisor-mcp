@@ -183,7 +183,22 @@ function MessageBubble({ message }: MessageBubbleProps) {
           </p>
         </div>
         <div className="text-xs text-[var(--text-muted)] mt-1 px-2">
-          {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {(() => {
+            const now = new Date();
+            const msgDate = new Date(message.timestamp);
+            const isToday = msgDate.toDateString() === now.toDateString();
+
+            if (isToday) {
+              return msgDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            } else {
+              return msgDate.toLocaleString([], {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+              });
+            }
+          })()}
         </div>
       </div>
     </div>
