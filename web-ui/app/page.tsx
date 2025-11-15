@@ -63,6 +63,23 @@ export default function Dashboard() {
     setConversations([]);
   }, []);
 
+  const handleClearAll = useCallback(async () => {
+    if (!confirm('Are you sure you want to clear all conversations? This cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      await api.clearAllConversations();
+      setSessions([]);
+      setSelectedSessionId(null);
+      setConversations([]);
+      loadSessions();
+      loadStats();
+    } catch (error) {
+      console.error('Failed to clear all conversations:', error);
+    }
+  }, [loadSessions, loadStats]);
+
   const handleSendMessage = useCallback(async (message: string) => {
     if (!message.trim()) return;
 
@@ -247,6 +264,7 @@ export default function Dashboard() {
             handleSelectSession(id);
             setIsSidebarOpen(false);
           }}
+          onClearAll={handleClearAll}
           activeSessionId={selectedSessionId || undefined}
         />
       </div>

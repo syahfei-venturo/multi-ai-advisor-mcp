@@ -14,6 +14,7 @@ interface ChatSidebarProps {
   sessions?: ChatSession[];
   onNewChat?: () => void;
   onSelectSession?: (sessionId: string) => void;
+  onClearAll?: () => void;
   activeSessionId?: string;
 }
 
@@ -21,6 +22,7 @@ export function ChatSidebar({
   sessions = [],
   onNewChat,
   onSelectSession,
+  onClearAll,
   activeSessionId
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -80,7 +82,10 @@ export function ChatSidebar({
           <span className="text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider">
             Your conversations
           </span>
-          <button className="text-xs text-[var(--accent-primary)] hover:text-[var(--accent-hover)] font-medium">
+          <button 
+            onClick={onClearAll}
+            className="text-xs text-[var(--accent-primary)] hover:text-[var(--accent-hover)] font-medium"
+          >
             Clear All
           </button>
         </div>

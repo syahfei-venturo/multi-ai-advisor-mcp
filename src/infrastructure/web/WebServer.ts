@@ -104,6 +104,23 @@ export class WebServer {
       }
     });
 
+    // API: Clear all conversations
+    this.app.delete('/api/conversations', (req: Request, res: Response) => {
+      try {
+        const sessions = this.conversationRepo.getAllSessions();
+        for (const session of sessions) {
+          this.conversationRepo.clearHistory(session.session_id);
+        }
+        this.broadcast({ type: 'all_conversations_cleared' });
+        res.json({ success: true, message: 'All conversations cleared' });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
     // API: Get all jobs
     this.app.get('/api/jobs', (req: Request, res: Response) => {
       try {
