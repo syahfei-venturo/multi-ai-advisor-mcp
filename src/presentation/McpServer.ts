@@ -92,6 +92,8 @@ export class McpServer implements SessionFactory, SSESessionFactory {
         this.conversationRepo,
         this.jobRepo,
         this.jobService,
+        this.ollamaService,
+        this.conversationService,
         config.webUI.backendPort || 3001
       );
     }

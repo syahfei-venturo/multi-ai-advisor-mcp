@@ -103,20 +103,13 @@ export default function Dashboard() {
 
       setConversations(prev => [...prev, userMessage]);
 
-      // Here you would call your API to send the message
-      // For now, we'll simulate a response
-      setTimeout(() => {
-        const assistantMessage: ConversationMessage = {
-          id: Date.now() + 1,
-          session_id: sessionId,
-          message_index: conversations.length + 1,
-          role: 'assistant',
-          content: 'This is a simulated response. Connect to your MCP server to get real responses from AI advisors.',
-          created_at: new Date().toISOString()
-        };
-        setConversations(prev => [...prev, assistantMessage]);
-        setIsLoading(false);
-      }, 1000);
+      // Send message to MCP server
+      try {
+        await api.sendMessage(sessionId, message);
+      } catch (error) {
+        console.error('Failed to send message to MCP server:', error);
+        // Continue - the WebSocket will handle the response
+      }
 
       // Update selected session if new
       if (!selectedSessionId) {
@@ -125,11 +118,13 @@ export default function Dashboard() {
 
       // Reload sessions to update the list
       loadSessions();
+      
+      setIsLoading(false);
     } catch (error) {
       console.error('Failed to send message:', error);
       setIsLoading(false);
     }
-  }, [selectedSessionId, loadSessions]);
+  }, [selectedSessionId, conversations.length, loadSessions]);
 
   const { isConnected } = useWebSocket({
     onMessage: (message) => {

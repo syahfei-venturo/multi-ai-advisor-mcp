@@ -9,6 +9,8 @@ import type { IJobRepository } from '../../core/interfaces/IJobRepository.js';
 import type { SSETransportManager } from '../transport/SSETransportManager.js';
 import type { StreamableHTTPTransportManager } from '../transport/StreamableHTTPTransportManager.js';
 import type { JobService } from '../../application/services/JobService.js';
+import type { OllamaService } from '../../application/services/OllamaService.js';
+import type { ConversationService } from '../../application/services/ConversationService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,6 +27,8 @@ export class WebServer {
     private conversationRepo: IConversationRepository,
     private jobRepo: IJobRepository,
     private jobService: JobService,
+    private ollamaService: OllamaService,
+    private conversationService: ConversationService,
     private backendPort: number = 3001
   ) {
     this.app = express();
@@ -195,6 +199,59 @@ export class WebServer {
         };
         res.json({ success: true, data: stats });
       } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    // API: Send message to models
+    this.app.post('/api/send-message', async (req: Request, res: Response) => {
+      try {
+        const { message, session_id, system_prompt, model_system_prompts, include_history } = req.body;
+
+        if (!message || typeof message !== 'string') {
+          res.status(400).json({
+            success: false,
+            error: 'Message is required and must be a string'
+          });
+          return;
+        }
+
+        const sessionId = session_id || `session_${Date.now()}`;
+        
+        // Ensure session exists
+        this.conversationRepo.createSession(sessionId);
+
+        // Add user message to conversation immediately
+        this.conversationService.addUserMessage(sessionId, message);
+
+        // Submit job to queue using query-models type (non-blocking)
+        const jobId = this.jobService.submitJob(
+          'query-models',
+          {
+            question: message,
+            session_id: sessionId,
+            system_prompt,
+            model_system_prompts,
+            include_history: include_history !== false, // default to true
+          },
+          undefined,
+          undefined
+        );
+
+        // Return job ID for polling
+        res.json({
+          success: true,
+          data: {
+            jobId,
+            sessionId,
+            status: 'submitted'
+          }
+        });
+      } catch (error) {
+        console.error('[WebServer] Error in send-message:', error);
         res.status(500).json({
           success: false,
           error: error instanceof Error ? error.message : 'Unknown error'
