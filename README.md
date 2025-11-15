@@ -154,7 +154,13 @@ OLLAMA_API_URL=http://remote:11434 node build/index.js --debug
 - `npm run start:debug` - Start with debug mode enabled
 - `npm run build` - Compile TypeScript to JavaScript
 
-## Connect to Claude for Desktop
+## Connection Modes
+
+Multi-Model Advisor supports two connection modes:
+
+### 1. stdio Mode (Default) - For Claude Desktop
+
+The traditional stdio mode spawns a new process for each client connection. Best for Claude Desktop integration.
 
 1. Locate your Claude for Desktop configuration file:
    - MacOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
@@ -177,9 +183,101 @@ OLLAMA_API_URL=http://remote:11434 node build/index.js --debug
 
 4. Restart Claude for Desktop
 
+### 2. SSE Mode (Persistent Server) - For Programmatic Access
+
+SSE (Server-Sent Events) mode runs a persistent server that multiple clients can connect to via HTTP. Best for API integrations, custom clients, and development.
+
+**Start the server:**
+
+```bash
+# Using environment variable
+MCP_TRANSPORT=sse node build/index.js
+
+# Or using CLI argument
+node build/index.js --mcp-transport sse
+```
+
+**Connect a client:**
+
+```bash
+# Run the example client
+node build/examples/sse-client.js
+```
+
+**Monitor sessions:**
+
+```bash
+# View active MCP sessions
+curl http://localhost:3001/mcp/sessions
+```
+
+**Configuration options:**
+
+```bash
+# In .env file
+MCP_TRANSPORT=sse                    # Enable SSE mode
+MCP_SESSION_TIMEOUT_MINUTES=60       # Session timeout (default: 60)
+WEB_UI_PORT=3001                     # Server port (default: 3001)
+
+# Or via CLI
+node build/index.js \
+  --mcp-transport sse \
+  --mcp-session-timeout 60 \
+  --web-ui-port 3001
+```
+
+**Advantages of SSE mode:**
+- ✅ Persistent server (no restart per client)
+- ✅ Multiple clients can connect simultaneously
+- ✅ Shared database and job queue across clients
+- ✅ HTTP endpoint for easy discovery
+- ✅ Session monitoring via `/mcp/sessions`
+- ✅ Better for API integrations
+
+See [examples/README.md](examples/README.md) for detailed SSE client examples.
+
+### 3. Gemini CLI Mode - For Google Gemini Integration
+
+**NEW!** Google Gemini CLI now supports MCP with SSE transport. You can use this MCP server with Gemini CLI!
+
+**Setup:**
+
+1. Install Gemini CLI:
+   ```bash
+   npm install -g @google-labs/gemini-cli
+   ```
+
+2. Start MCP server in SSE mode:
+   ```bash
+   node build/index.js --mcp-transport sse
+   ```
+
+3. Configure Gemini CLI (`~/.gemini/settings.json`):
+   ```json
+   {
+     "mcpServers": {
+       "multi-model-advisor": {
+         "url": "http://localhost:3001/mcp/sse",
+         "timeout": 60000,
+         "trust": true
+       }
+     }
+   }
+   ```
+
+4. Use with Gemini CLI:
+   ```bash
+   gemini chat
+   # In chat: "Use query-models to ask local AI models about [your question]"
+   ```
+
+**Benefits:** Combine Gemini's cloud intelligence with your local privacy-focused models!
+
+See [GEMINI_CLI.md](GEMINI_CLI.md) for complete Gemini CLI integration guide.
+
 ## Usage
 
-Once connected to Claude for Desktop, you can use the Multi-Model Advisor in several ways:
+Once connected to Claude Desktop or Gemini CLI, you can use the Multi-Model Advisor in several ways:
 
 ### List Available Models
 
@@ -295,6 +393,57 @@ The server supports multiple prompt template formats for better model compatibil
 - Manual template override options
 - Supported model families
 - Configuration examples
+
+### Port Configuration
+
+The server uses separate ports for different services to avoid conflicts:
+
+| Service | Default Port | Config Option | Environment Variable |
+|---------|--------------|---------------|---------------------|
+| Frontend (Next.js) | 3000 | `--frontend-port` | `FRONTEND_PORT` |
+| Backend (API + MCP) | 3001 | `--backend-port` | `BACKEND_PORT` |
+
+**Example:**
+```bash
+node build/index.js \
+  --mcp-transport sse \
+  --frontend-port 8080 \
+  --backend-port 8081
+```
+
+## Troubleshooting
+
+### Port Conflicts
+
+If you see "EADDRINUSE" error, another process is using the port. Solutions:
+
+1. **Use different ports:**
+   ```bash
+   node build/index.js --backend-port 3002
+   ```
+
+2. **Disable Web UI** (if you only need MCP):
+   ```bash
+   node build/index.js --web-ui false --mcp-transport sse
+   ```
+
+3. **Find and kill the process:**
+   ```bash
+   # Windows
+   netstat -ano | findstr :3000
+   taskkill /PID <PID> /F
+
+   # Linux/Mac
+   lsof -i :3000
+   kill -9 <PID>
+   ```
+
+### More Help
+
+For detailed troubleshooting, see:
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Complete troubleshooting guide
+- **[GEMINI_CLI.md](GEMINI_CLI.md)** - Gemini CLI integration
+- **[CLAUDE.md](CLAUDE.md)** - Developer documentation
 
 ## License
 

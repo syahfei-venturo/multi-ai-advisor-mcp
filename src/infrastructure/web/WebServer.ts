@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import type { IConversationRepository } from '../../core/interfaces/IConversationRepository.js';
 import type { IJobRepository } from '../../core/interfaces/IJobRepository.js';
+import type { SSETransportManager } from '../transport/SSETransportManager.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,15 +19,25 @@ export class WebServer {
   private wss: WebSocketServer | null = null;
   private clients: Set<WebSocket> = new Set();
   private nextJsProcess: ChildProcess | null = null;
+  private sseTransportManager: SSETransportManager | null = null;
 
   constructor(
     private conversationRepo: IConversationRepository,
     private jobRepo: IJobRepository,
-    private port: number = 3000
+    private backendPort: number = 3001,
+    private frontendPort: number = 3000
   ) {
     this.app = express();
     this.setupMiddleware();
     this.setupRoutes();
+  }
+
+  /**
+   * Enable SSE-based MCP transport
+   */
+  public enableMcpTransport(manager: SSETransportManager): void {
+    this.sseTransportManager = manager;
+    this.setupMcpRoutes();
   }
 
   private setupMiddleware(): void {
@@ -164,6 +175,80 @@ export class WebServer {
     });
   }
 
+  /**
+   * Setup MCP SSE routes
+   */
+  private setupMcpRoutes(): void {
+    if (!this.sseTransportManager) {
+      console.warn('[WebServer] SSE Transport Manager not initialized');
+      return;
+    }
+
+    // SSE endpoint - establishes SSE connection (with sessionId)
+    this.app.get('/mcp/sse/:sessionId', async (req: Request, res: Response) => {
+      try {
+        const sessionId = await this.sseTransportManager!.handleSSEConnection(req, res);
+        console.log(`[WebServer] MCP SSE connection established: ${sessionId}`);
+      } catch (error) {
+        console.error('[WebServer] Error establishing SSE connection:', error);
+        res.status(500).json({
+          error: 'Failed to establish SSE connection',
+          details: error instanceof Error ? error.message : String(error)
+        });
+      }
+    });
+
+    // SSE endpoint - establishes SSE connection (auto-generate sessionId)
+    this.app.get('/mcp/sse', async (req: Request, res: Response) => {
+      try {
+        const sessionId = await this.sseTransportManager!.handleSSEConnection(req, res);
+        console.log(`[WebServer] MCP SSE connection established: ${sessionId}`);
+      } catch (error) {
+        console.error('[WebServer] Error establishing SSE connection:', error);
+        res.status(500).json({
+          error: 'Failed to establish SSE connection',
+          details: error instanceof Error ? error.message : String(error)
+        });
+      }
+    });
+
+    // POST message endpoint - receives messages from client
+    this.app.post('/mcp/messages/:sessionId', async (req: Request, res: Response) => {
+      try {
+        await this.sseTransportManager!.handlePostMessage(req, res);
+      } catch (error) {
+        console.error('[WebServer] Error handling POST message:', error);
+        res.status(500).json({
+          error: 'Failed to handle message',
+          details: error instanceof Error ? error.message : String(error)
+        });
+      }
+    });
+
+    // Session info endpoint (for debugging)
+    this.app.get('/mcp/sessions', (req: Request, res: Response) => {
+      try {
+        const sessions = this.sseTransportManager!.getSessionInfo();
+        res.json({
+          success: true,
+          activeSessionCount: this.sseTransportManager!.getActiveSessionCount(),
+          sessions
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    });
+
+    console.log('[WebServer] MCP SSE routes registered:');
+    console.log('  GET  /mcp/sse - Establish SSE connection (auto-generate session)');
+    console.log('  GET  /mcp/sse/:sessionId - Establish SSE connection (specific session)');
+    console.log('  POST /mcp/messages/:sessionId - Send messages');
+    console.log('  GET  /mcp/sessions - View active sessions');
+  }
+
   private setupWebSocket(): void {
     if (!this.httpServer) return;
 
@@ -236,11 +321,19 @@ export class WebServer {
     const isWindows = process.platform === 'win32';
     const npmCmd = isWindows ? 'npm.cmd' : 'npm';
 
+    // Pass frontend port as environment variable
+    const env = {
+      ...process.env,
+      PORT: String(this.frontendPort),
+      NEXT_PUBLIC_API_URL: `http://localhost:${this.backendPort}`
+    };
+
     this.nextJsProcess = spawn(npmCmd, ['run', 'dev'], {
       cwd: webUiPath,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,
       shell: isWindows,
+      env,
     });
 
     // Handle Next.js output
@@ -275,8 +368,8 @@ export class WebServer {
   public start(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        this.httpServer = this.app.listen(this.port, () => {
-          console.log(`[WebServer] Backend API available at http://localhost:${this.port}`);
+        this.httpServer = this.app.listen(this.backendPort, () => {
+          console.log(`[WebServer] Backend API available at http://localhost:${this.backendPort}`);
           this.setupWebSocket();
 
           // Start Next.js automatically

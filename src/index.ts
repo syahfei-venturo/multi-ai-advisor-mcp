@@ -24,7 +24,7 @@ async function main() {
 
     // Create and start Web UI server (if enabled)
     if (config.webUI?.enabled) {
-      webServer = new WebServerManager(true, config.webUI.port);
+      webServer = new WebServerManager(true, config.webUI.frontendPort);
       await webServer.start();
     }
 
@@ -34,6 +34,11 @@ async function main() {
 
     // Print statistics
     mcpServer.printStats();
+
+    // If running in SSE mode, keep the process alive
+    if (config.mcp?.transport === 'sse') {
+      console.error('\n🚀 Server is running. Press Ctrl+C to stop.\n');
+    }
 
     // Setup graceful shutdown
     const shutdown = async (signal: string) => {

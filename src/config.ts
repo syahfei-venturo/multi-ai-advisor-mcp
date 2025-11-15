@@ -38,7 +38,12 @@ export interface Config {
   };
   webUI?: {
     enabled: boolean;
-    port: number;
+    frontendPort: number;  // Next.js dev server port
+    backendPort: number;   // Express API + MCP SSE port
+  };
+  mcp?: {
+    transport: 'stdio' | 'sse';
+    sessionTimeoutMinutes: number;
   };
 }
 
@@ -67,7 +72,12 @@ const ConfigSchema = z.object({
   }).optional(),
   webUI: z.object({
     enabled: z.boolean(),
-    port: z.number().int().min(1024).max(65535),
+    frontendPort: z.number().int().min(1024).max(65535),
+    backendPort: z.number().int().min(1024).max(65535),
+  }).optional(),
+  mcp: z.object({
+    transport: z.enum(['stdio', 'sse']),
+    sessionTimeoutMinutes: z.number().int().min(5).max(1440),
   }).optional(),
 });
 
@@ -240,7 +250,14 @@ export function getConfig(): Config {
   // Web UI configuration
   const webUIConfig = {
     enabled: getBoolean('web-ui', 'WEB_UI_ENABLED', true),
-    port: getNumber('web-ui-port', 'WEB_UI_PORT', 3001), // Changed to 3001 for Next.js (runs on 3000)
+    frontendPort: getNumber('frontend-port', 'FRONTEND_PORT', 3000), // Next.js dev server
+    backendPort: getNumber('backend-port', 'BACKEND_PORT', 3001),   // Express API + MCP SSE
+  };
+
+  // MCP configuration
+  const mcpConfig = {
+    transport: (cliArgs['mcp-transport'] || process.env.MCP_TRANSPORT || 'stdio') as 'stdio' | 'sse',
+    sessionTimeoutMinutes: getNumber('mcp-session-timeout', 'MCP_SESSION_TIMEOUT_MINUTES', 60),
   };
 
   const rawConfig = {
@@ -258,6 +275,7 @@ export function getConfig(): Config {
     thinking: thinkingConfig,
     jobQueue: jobQueueConfig,
     webUI: webUIConfig,
+    mcp: mcpConfig,
   };
 
   // Validate configuration
@@ -316,8 +334,10 @@ export function printConfigInfo(config: Config): void {
     console.error('🌐 Web UI Configuration:');
     console.error(`  Enabled: ${config.webUI.enabled ? '✓ Yes' : '✗ No'}`);
     if (config.webUI.enabled) {
-      console.error(`  Port: ${config.webUI.port}`);
-      console.error(`  URL: http://localhost:${config.webUI.port}`);
+      console.error(`  Frontend Port (Next.js): ${config.webUI.frontendPort}`);
+      console.error(`  Backend Port (API + MCP): ${config.webUI.backendPort}`);
+      console.error(`  Frontend URL: http://localhost:${config.webUI.frontendPort}`);
+      console.error(`  Backend API: http://localhost:${config.webUI.backendPort}`);
     }
     console.error();
   }
@@ -352,7 +372,10 @@ export function printConfigInfo(config: Config): void {
   console.error('  --default-thinking-steps NUM    Default thinking steps (default: 3)');
   console.error('  --max-thinking-steps NUM        Max thinking steps allowed (default: 4)');
   console.error('  --web-ui                        Enable Web UI (default: true)');
-  console.error('  --web-ui-port NUM               Web UI port (default: 3000)\n');
+  console.error('  --frontend-port NUM             Next.js frontend port (default: 3000)');
+  console.error('  --backend-port NUM              Express backend + MCP SSE port (default: 3001)');
+  console.error('  --mcp-transport TYPE            MCP transport: "stdio" or "sse" (default: stdio)');
+  console.error('  --mcp-session-timeout NUM       MCP session timeout in minutes (default: 60)\n');
   
   console.error('📚 Examples:');
   console.error('  # Basic start with defaults');
