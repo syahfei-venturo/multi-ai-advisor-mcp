@@ -224,10 +224,8 @@ export class WebServer {
         // Ensure session exists
         this.conversationRepo.createSession(sessionId);
 
-        // Add user message to conversation immediately
-        this.conversationService.addUserMessage(sessionId, message);
-
         // Submit job to queue using query-models type (non-blocking)
+        // The job handler will add both user message and model responses to conversation
         const jobId = this.jobService.submitJob(
           'query-models',
           {
