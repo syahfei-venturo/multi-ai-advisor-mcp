@@ -254,8 +254,24 @@ export class McpServer implements SessionFactory {
         throw new Error('MCP server not initialized for stdio mode');
       }
       const transport = new StdioServerTransport();
+
+      // Add stdio error handling to prevent unexpected disconnections
+      process.stdin.on('error', (error) => {
+        console.error('⚠️ stdin error (non-fatal):', error.message);
+      });
+
+      process.stdout.on('error', (error) => {
+        console.error('⚠️ stdout error (non-fatal):', error.message);
+      });
+
+      // Monitor pipe status
+      process.stdin.on('end', () => {
+        console.error('⚠️ stdin ended - client may have disconnected');
+      });
+
       await this.server.connect(transport);
       console.error(`\n✅ Multi-Model Advisor MCP Server running on stdio`);
+      this.debugLog('stdio transport connected successfully');
     } else {
       // SSE mode: server runs persistently, clients connect via HTTP
       const backendPort = this.config.webUI?.backendPort || 3001;

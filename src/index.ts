@@ -62,14 +62,28 @@ async function main() {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
 
     // Also handle uncaught errors
+    // Note: We log errors but don't shutdown for recoverable errors
     process.on('uncaughtException', async (error) => {
       console.error('💥 Uncaught Exception:', error);
-      await shutdown('UNCAUGHT_EXCEPTION');
+
+      // Only shutdown for critical errors
+      const criticalErrors = ['EACCES', 'EADDRINUSE', 'ENOMEM'];
+      const isCritical = error instanceof Error &&
+        criticalErrors.some(code => error.message.includes(code));
+
+      if (isCritical) {
+        console.error('⚠️ Critical error detected, shutting down...');
+        await shutdown('UNCAUGHT_EXCEPTION');
+      } else {
+        console.error('⚠️ Non-critical error, server continuing...');
+      }
     });
 
     process.on('unhandledRejection', async (reason, promise) => {
       console.error('💥 Unhandled Rejection at:', promise, 'reason:', reason);
-      await shutdown('UNHANDLED_REJECTION');
+
+      // Log but don't shutdown for promise rejections (they're often recoverable)
+      console.error('⚠️ Promise rejection logged, server continuing...');
     });
 
   } catch (error) {

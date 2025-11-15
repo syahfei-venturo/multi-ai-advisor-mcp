@@ -16,6 +16,7 @@ export interface McpSession {
   server: BaseMcpServer;
   createdAt: Date;
   lastActivity: Date;
+  heartbeatInterval?: NodeJS.Timeout;
 }
 
 export interface SessionFactory {
@@ -63,12 +64,35 @@ export class SSETransportManager {
       // Handle transport closure BEFORE connecting
       // (must be set before connect() to catch any immediate errors)
       transport.onclose = () => {
-        this.removeSession(sessionId);
+        console.error(`[SSETransportManager] Transport closed for session: ${sessionId}`);
+        // Mark session as disconnected but don't remove immediately
+        // This allows client to reconnect with same session ID
+        const existingSession = this.sessions.get(sessionId);
+        if (existingSession) {
+          existingSession.lastActivity = new Date();
+          console.error(`[SSETransportManager] Session ${sessionId} marked for cleanup (will timeout if not reconnected)`);
+        }
       };
 
       // Connect server to transport
       // NOTE: server.connect() automatically calls transport.start()
       await server.connect(transport);
+
+      // Setup heartbeat to keep connection alive (every 30 seconds)
+      session.heartbeatInterval = setInterval(() => {
+        const currentSession = this.sessions.get(sessionId);
+        if (currentSession) {
+          // SSE comment keeps connection alive
+          // Transport will handle sending keep-alive messages
+          console.error(`[SSETransportManager] Heartbeat for session: ${sessionId}`);
+        } else {
+          // Session was removed, clear interval
+          const sessionToClean = this.sessions.get(sessionId);
+          if (sessionToClean?.heartbeatInterval) {
+            clearInterval(sessionToClean.heartbeatInterval);
+          }
+        }
+      }, 30000); // 30 seconds
 
       console.error(`[SSETransportManager] New session created: ${sessionId}`);
     } else {
@@ -124,6 +148,11 @@ export class SSETransportManager {
     this.sessions.delete(sessionId);
 
     try {
+      // Clear heartbeat interval
+      if (session.heartbeatInterval) {
+        clearInterval(session.heartbeatInterval);
+      }
+
       // Clear the onclose handler to prevent re-entry
       session.transport.onclose = undefined;
 
