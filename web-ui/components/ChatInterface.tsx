@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Brain } from 'lucide-react';
+import { Send, Bot, User, Brain, ArrowDown } from 'lucide-react';
 
 interface Message {
   id: string;
@@ -23,15 +23,38 @@ export function ChatInterface({
   isLoading = false
 }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
+  const [showScrollButton, setShowScrollButton] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const shouldAutoScrollRef = useRef(true);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (behavior: 'smooth' | 'auto' = 'smooth') => {
+    messagesEndRef.current?.scrollIntoView({ behavior });
   };
 
+  // Check if user is near bottom of scroll
+  const isNearBottom = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return true;
+
+    const threshold = 150; // pixels from bottom
+    const position = container.scrollHeight - container.scrollTop - container.clientHeight;
+    return position < threshold;
+  };
+
+  // Handle scroll events to detect if user scrolled up
+  const handleScroll = () => {
+    const nearBottom = isNearBottom();
+    shouldAutoScrollRef.current = nearBottom;
+    setShowScrollButton(!nearBottom);
+  };
+
+  // Auto-scroll only if user is near bottom
   useEffect(() => {
-    scrollToBottom();
+    if (shouldAutoScrollRef.current) {
+      scrollToBottom();
+    }
   }, [messages]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -42,6 +65,9 @@ export function ChatInterface({
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
       }
+      // Always scroll to bottom when sending a message
+      shouldAutoScrollRef.current = true;
+      setTimeout(() => scrollToBottom(), 100);
     }
   };
 
@@ -61,9 +87,13 @@ export function ChatInterface({
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-8 space-y-4 sm:space-y-6">
+      <div
+        ref={messagesContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 sm:py-8 space-y-4 sm:space-y-6"
+      >
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
@@ -85,6 +115,20 @@ export function ChatInterface({
         )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Scroll to Bottom Button */}
+      {showScrollButton && (
+        <button
+          onClick={() => {
+            shouldAutoScrollRef.current = true;
+            scrollToBottom();
+          }}
+          className="absolute bottom-24 right-4 sm:right-8 w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all flex items-center justify-center z-10"
+          title="Scroll to bottom"
+        >
+          <ArrowDown size={18} />
+        </button>
+      )}
 
       {/* Input Area */}
       <div className="border-t border-[var(--border)] p-4 sm:p-6">
