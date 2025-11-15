@@ -5,6 +5,7 @@ import { ChatSidebar } from '@/components/ChatSidebar';
 import { WelcomeScreen } from '@/components/WelcomeScreen';
 import { ChatInterface } from '@/components/ChatInterface';
 import { SystemMonitor } from '@/components/SystemMonitor';
+import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { useWebSocket } from '@/lib/useWebSocket';
 import { api } from '@/lib/api';
 import type { Session, ConversationMessage, Stats, Job } from '@/types';
@@ -16,6 +17,7 @@ export default function Dashboard() {
   const [isLoading, setIsLoading] = useState(false);
   const [stats, setStats] = useState<Stats | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [showClearAllDialog, setShowClearAllDialog] = useState(false);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -64,21 +66,22 @@ export default function Dashboard() {
   }, []);
 
   const handleClearAll = useCallback(async () => {
-    if (!confirm('Are you sure you want to clear all conversations? This cannot be undone.')) {
-      return;
-    }
-    
     try {
       await api.clearAllConversations();
       setSessions([]);
       setSelectedSessionId(null);
       setConversations([]);
+      setShowClearAllDialog(false);
       loadSessions();
       loadStats();
     } catch (error) {
       console.error('Failed to clear all conversations:', error);
     }
   }, [loadSessions, loadStats]);
+
+  const handleClearAllClick = useCallback(() => {
+    setShowClearAllDialog(true);
+  }, []);
 
   const handleSendMessage = useCallback(async (message: string) => {
     if (!message.trim()) return;
@@ -226,10 +229,30 @@ export default function Dashboard() {
     timestamp: new Date(conv.created_at)
   }));
 
+  // Filter jobs by current session
+  const sessionJobs = selectedSessionId 
+    ? jobs.filter(job => job.session_id === selectedSessionId) 
+    : [];
+
+  // Check if there are any running jobs for current session
+  const hasRunningJobs = sessionJobs.some(job => job.status === 'running');
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   return (
-    <div className="flex h-screen bg-[var(--background)] overflow-hidden">
+    <>
+      <ConfirmDialog
+        isOpen={showClearAllDialog}
+        title="Clear All Conversations"
+        message="Are you sure you want to clear all conversations? This action cannot be undone and all conversation history will be permanently deleted."
+        confirmText="Clear All"
+        cancelText="Cancel"
+        isDangerous={true}
+        onConfirm={handleClearAll}
+        onCancel={() => setShowClearAllDialog(false)}
+      />
+
+      <div className="flex h-screen bg-[var(--background)] overflow-hidden">
       {/* Mobile Sidebar Toggle */}
       <button
         onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -264,7 +287,7 @@ export default function Dashboard() {
             handleSelectSession(id);
             setIsSidebarOpen(false);
           }}
-          onClearAll={handleClearAll}
+          onClearAll={handleClearAllClick}
           activeSessionId={selectedSessionId || undefined}
         />
       </div>
@@ -276,6 +299,7 @@ export default function Dashboard() {
             messages={messages}
             onSendMessage={handleSendMessage}
             isLoading={isLoading}
+            isJobRunning={hasRunningJobs}
           />
         ) : (
           <div className="flex-1 overflow-y-auto">
@@ -326,5 +350,6 @@ export default function Dashboard() {
         onRefreshJobs={loadJobs}
       />
     </div>
+    </>
   );
 }

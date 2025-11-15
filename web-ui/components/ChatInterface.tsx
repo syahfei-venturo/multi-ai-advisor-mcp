@@ -15,12 +15,14 @@ interface ChatInterfaceProps {
   messages?: Message[];
   onSendMessage?: (message: string) => void;
   isLoading?: boolean;
+  isJobRunning?: boolean;
 }
 
 export function ChatInterface({
   messages = [],
   onSendMessage,
-  isLoading = false
+  isLoading = false,
+  isJobRunning = false
 }: ChatInterfaceProps) {
   const [input, setInput] = useState('');
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -97,7 +99,7 @@ export function ChatInterface({
         {messages.map((message) => (
           <MessageBubble key={message.id} message={message} />
         ))}
-        {isLoading && (
+        {(isLoading || isJobRunning) && (
           <div className="flex items-start gap-4">
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center flex-shrink-0">
               <Bot size={18} className="text-white" />

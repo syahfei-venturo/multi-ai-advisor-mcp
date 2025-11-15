@@ -39,12 +39,12 @@ export function SystemMonitor({ stats, jobs, isConnected, onRefreshJobs }: Syste
         <>
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-black/50 z-40"
+            className="fixed inset-0 bg-black/50 z-40 monitor-backdrop-enter"
             onClick={() => setIsOpen(false)}
           />
 
           {/* Panel */}
-          <div className="fixed right-0 top-0 h-full w-full sm:w-[480px] bg-[var(--sidebar-bg)] border-l border-[var(--border)] z-50 flex flex-col shadow-2xl">
+          <div className="fixed right-0 top-0 h-full w-full sm:w-[480px] bg-[var(--sidebar-bg)] border-l border-[var(--border)] z-50 flex flex-col shadow-2xl monitor-panel-enter">
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-[var(--border)]">
               <div className="flex items-center gap-3">

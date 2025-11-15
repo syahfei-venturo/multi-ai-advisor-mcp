@@ -137,7 +137,8 @@ export class WebServer {
           completed_at: job.completedAt?.toISOString(),
           question: job.input?.question || '',
           results: job.result ? JSON.stringify(job.result) : null,
-          error: job.error
+          error: job.error,
+          session_id: job.input?.session_id || undefined
         }));
         res.json({ success: true, data: serializedJobs });
       } catch (error) {

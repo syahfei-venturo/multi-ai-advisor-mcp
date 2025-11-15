@@ -57,6 +57,63 @@ body {
   transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
+/* System Monitor drawer animations */
+.monitor-backdrop-enter {
+  animation: backdropFadeIn 0.3s ease forwards;
+}
+
+.monitor-panel-enter {
+  animation: panelSlideIn 0.3s ease forwards;
+}
+
+.monitor-backdrop-exit {
+  animation: backdropFadeOut 0.3s ease forwards;
+}
+
+.monitor-panel-exit {
+  animation: panelSlideOut 0.3s ease forwards;
+}
+
+@keyframes backdropFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes backdropFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes panelSlideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes panelSlideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
 /* Custom gradient for buttons */
 .gradient-button {
   background: linear-gradient(135deg, var(--accent-primary) 0%, #7c7ce5 100%);
