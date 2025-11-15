@@ -167,6 +167,7 @@ export class McpServer implements SessionFactory, SSESessionFactory {
     // Setup job execution handler
     this.jobService.onJobStarted(async (job) => {
       if (job.type === 'query-models') {
+        let cancellationCheck: NodeJS.Timeout | null = null;
         try {
           const input = job.input as any;
           const { question, system_prompt, model_system_prompts, session_id, include_history } =
@@ -175,10 +176,10 @@ export class McpServer implements SessionFactory, SSESessionFactory {
           this.debugLog(`[QueryModels] Job ${job.id} started: question="${question.substring(0, 50)}..."`);
 
           // Create a cancellation check that monitors the job status
-          const cancellationCheck = setInterval(() => {
+          cancellationCheck = setInterval(() => {
             const currentJob = this.jobService.getJobStatus(job.id);
             if (currentJob && currentJob.status === 'cancelled') {
-              clearInterval(cancellationCheck);
+              if (cancellationCheck) clearInterval(cancellationCheck);
               // Trigger abort if abort controller exists
               const jobWithAbort = currentJob as any;
               if (jobWithAbort.abortController) {
@@ -202,17 +203,24 @@ export class McpServer implements SessionFactory, SSESessionFactory {
             (job as any).abortController?.signal
           );
 
-          clearInterval(cancellationCheck);
+          if (cancellationCheck) clearInterval(cancellationCheck);
           this.debugLog(`[QueryModels] Job ${job.id} completed successfully`);
           this.jobService.completeJob(job.id, result);
         } catch (error) {
+          if (cancellationCheck) clearInterval(cancellationCheck);
+          
           const errorMsg = error instanceof Error ? error.message : String(error);
+          const isAbortError = errorMsg.includes('aborted') || errorMsg.includes('AbortError') || 
+                              (error as any)?.type === 'aborted';
+          
           this.debugLog(`[QueryModels] Job ${job.id} failed: ${errorMsg}`);
           
           // Check if it was cancelled
           const currentJob = this.jobService.getJobStatus(job.id);
-          if (currentJob?.status === 'cancelled') {
-            this.debugLog(`[QueryModels] Job ${job.id} was cancelled`);
+          if (currentJob?.status === 'cancelled' || isAbortError) {
+            this.debugLog(`[QueryModels] Job ${job.id} was cancelled, marking as complete`);
+            // Mark job as cancelled instead of failed
+            this.jobService.completeJob(job.id, { cancelled: true });
           } else {
             this.jobService.failJob(job.id, errorMsg);
           }
