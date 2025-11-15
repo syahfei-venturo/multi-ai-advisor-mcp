@@ -1,11 +1,9 @@
 import express, { Express, Request, Response } from 'express';
 import { Server as HttpServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { spawn, ChildProcess } from 'child_process';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs';
 import type { IConversationRepository } from '../../core/interfaces/IConversationRepository.js';
 import type { IJobRepository } from '../../core/interfaces/IJobRepository.js';
 import type { SSETransportManager } from '../transport/SSETransportManager.js';
@@ -18,14 +16,12 @@ export class WebServer {
   private httpServer: HttpServer | null = null;
   private wss: WebSocketServer | null = null;
   private clients: Set<WebSocket> = new Set();
-  private nextJsProcess: ChildProcess | null = null;
   private sseTransportManager: SSETransportManager | null = null;
 
   constructor(
     private conversationRepo: IConversationRepository,
     private jobRepo: IJobRepository,
-    private backendPort: number = 3001,
-    private frontendPort: number = 3000
+    private backendPort: number = 3001
   ) {
     this.app = express();
     this.setupMiddleware();
@@ -299,72 +295,6 @@ export class WebServer {
     });
   }
 
-  private startNextJs(): void {
-    const webUiPath = path.join(__dirname, '../../../web-ui');
-
-    // Check if web-ui directory exists
-    if (!fs.existsSync(webUiPath)) {
-      console.log('[WebServer] Next.js web-ui directory not found, skipping...');
-      return;
-    }
-
-    // Check if node_modules exists
-    const nodeModulesPath = path.join(webUiPath, 'node_modules');
-    if (!fs.existsSync(nodeModulesPath)) {
-      console.log('[WebServer] Next.js dependencies not installed. Run: cd web-ui && npm install');
-      return;
-    }
-
-    console.log('[WebServer] Starting Next.js dev server...');
-
-    // Spawn Next.js process
-    const isWindows = process.platform === 'win32';
-    const npmCmd = isWindows ? 'npm.cmd' : 'npm';
-
-    // Pass frontend port as environment variable
-    const env = {
-      ...process.env,
-      PORT: String(this.frontendPort),
-      NEXT_PUBLIC_API_URL: `http://localhost:${this.backendPort}`
-    };
-
-    this.nextJsProcess = spawn(npmCmd, ['run', 'dev'], {
-      cwd: webUiPath,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: false,
-      shell: isWindows,
-      env,
-    });
-
-    // Handle Next.js output
-    this.nextJsProcess.stdout?.on('data', (data) => {
-      const output = data.toString().trim();
-      if (output.includes('Local:') || output.includes('Ready')) {
-        console.log(`[Next.js] ${output}`);
-      }
-    });
-
-    this.nextJsProcess.stderr?.on('data', (data) => {
-      const output = data.toString().trim();
-      // Only log errors, not warnings
-      if (output.includes('Error') || output.includes('error')) {
-        console.error(`[Next.js] ${output}`);
-      }
-    });
-
-    this.nextJsProcess.on('error', (error) => {
-      console.error('[Next.js] Failed to start:', error);
-      this.nextJsProcess = null;
-    });
-
-    this.nextJsProcess.on('exit', (code) => {
-      if (code !== 0 && code !== null) {
-        console.error(`[Next.js] Process exited with code ${code}`);
-      }
-      this.nextJsProcess = null;
-    });
-  }
-
   public start(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
@@ -372,8 +302,8 @@ export class WebServer {
           console.log(`[WebServer] Backend API available at http://localhost:${this.backendPort}`);
           this.setupWebSocket();
 
-          // Start Next.js automatically
-          this.startNextJs();
+          // Note: Next.js is started separately by WebServerManager (see index.ts)
+          // This class only handles Express API + WebSocket server
 
           resolve();
         });
@@ -390,12 +320,8 @@ export class WebServer {
 
   public stop(): Promise<void> {
     return new Promise((resolve) => {
-      // Stop Next.js process
-      if (this.nextJsProcess) {
-        console.log('[WebServer] Stopping Next.js dev server...');
-        this.nextJsProcess.kill('SIGTERM');
-        this.nextJsProcess = null;
-      }
+      // Note: Next.js is stopped separately by WebServerManager (see index.ts)
+      // This class only handles Express API + WebSocket server
 
       // Close all WebSocket connections
       this.clients.forEach((client) => {
