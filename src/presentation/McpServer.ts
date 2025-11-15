@@ -69,7 +69,8 @@ export class McpServer implements SessionFactory {
     );
 
     const jobQueue = new JobQueue(
-      config.jobQueue?.maxConcurrentJobs || 3
+      config.jobQueue?.maxConcurrentJobs || 3,
+      this.jobRepo
     );
 
     // Initialize services

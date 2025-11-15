@@ -1,3 +1,5 @@
+import { IJobRepository } from '../../core/interfaces/IJobRepository.js';
+
 /**
  * Generate a UUID v4-like string
  */
@@ -46,9 +48,39 @@ export class JobQueue {
   private running: Map<string, Job> = new Map();
   private completed: Map<string, Job> = new Map();
   private maxConcurrent: number;
+  private jobRepo?: IJobRepository;
 
-  constructor(maxConcurrent: number = 3) {
+  constructor(maxConcurrent: number = 3, jobRepo?: IJobRepository) {
     this.maxConcurrent = maxConcurrent;
+    this.jobRepo = jobRepo;
+
+    // Load existing jobs from database if repository provided
+    if (this.jobRepo) {
+      this.loadJobsFromDatabase();
+    }
+  }
+
+  /**
+   * Load completed jobs from database into memory
+   */
+  private loadJobsFromDatabase(): void {
+    if (!this.jobRepo) return;
+
+    try {
+      const dbJobs = this.jobRepo.getAllJobs();
+      console.error(`[JobQueue] Loading ${dbJobs.length} jobs from database`);
+
+      for (const job of dbJobs) {
+        // Only load completed/failed/cancelled jobs (not pending/running)
+        if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
+          this.completed.set(job.id, job);
+        }
+      }
+
+      console.error(`[JobQueue] Loaded ${this.completed.size} completed jobs from database`);
+    } catch (error) {
+      console.error('[JobQueue] Error loading jobs from database:', error);
+    }
   }
 
   /**
@@ -137,6 +169,16 @@ export class JobQueue {
       this.running.delete(jobId);
       this.completed.set(jobId, job);
 
+      // Persist to database if repository available
+      if (this.jobRepo) {
+        try {
+          this.jobRepo.saveJob(job);
+          console.error(`[JobQueue] ✓ Job ${jobId} persisted to database (completed)`);
+        } catch (error) {
+          console.error(`[JobQueue] ✗ Failed to persist job ${jobId} to database:`, error);
+        }
+      }
+
       // Trigger completion callback
       this.onJobCompleted(job);
 
@@ -155,6 +197,17 @@ export class JobQueue {
       job.error = error;
       this.running.delete(jobId);
       this.completed.set(jobId, job);
+
+      // Persist to database if repository available
+      if (this.jobRepo) {
+        try {
+          this.jobRepo.saveJob(job);
+          console.error(`[JobQueue] ✓ Job ${jobId} persisted to database (failed)`);
+        } catch (error) {
+          console.error(`[JobQueue] ✗ Failed to persist job ${jobId} to database:`, error);
+        }
+      }
+
       this.processQueue();
     }
   }
