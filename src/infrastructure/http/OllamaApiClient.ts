@@ -48,6 +48,7 @@ export class OllamaApiClient implements IOllamaClient {
               prompt,
               system: systemPrompt,
               stream: false,
+              think: true,
               options: {
                 // GPU Configuration (RTX 2060 SUPER - 8GB VRAM)
                 num_gpu: 1, // Use GPU acceleration
@@ -118,6 +119,7 @@ export class OllamaApiClient implements IOllamaClient {
             body: JSON.stringify({
               model,
               messages,
+              think: true,
               stream: false,
               options: {
                 // GPU Configuration (RTX 2060 SUPER - 8GB VRAM)

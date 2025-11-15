@@ -79,7 +79,6 @@ export function registerQueryModelsTool(
         .describe('Optional object mapping model names to specific system prompts'),
       session_id: z
         .string()
-        .optional()
         .describe('Session ID for conversation memory. Use the same ID to continue a conversation'),
       include_history: z
         .boolean()
@@ -128,7 +127,7 @@ export function registerQueryModelsTool(
 
         // If wait_for_completion is true, poll until job is done
         if (wait_for_completion) {
-          const maxWaitTime = 600000; // 10 minutes max
+          const maxWaitTime = 5000000;
           const pollInterval = 1000; // Check every 1 second
           const progressReportInterval = 5000; // Report progress every 5 seconds
           const startTime = Date.now();
