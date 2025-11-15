@@ -100,12 +100,23 @@ export class JobQueue {
       createdAt: new Date(),
       input,
       progressUpdates: [],
-      estimatedTotalMs: estimatedTotalMs || 300000, 
+      estimatedTotalMs: estimatedTotalMs || 300000,
       estimatedCompletionMs: estimatedTotalMs || 300000,
       modelCount: modelCount || 3,
     };
 
     this.pending.push(job);
+
+    // Persist to database if repository available
+    if (this.jobRepo) {
+      try {
+        this.jobRepo.saveJob(job);
+        console.error(`[JobQueue] ✓ Job ${job.id} persisted to database (pending)`);
+      } catch (error) {
+        console.error(`[JobQueue] ✗ Failed to persist job ${job.id} to database:`, error);
+      }
+    }
+
     this.processQueue();
 
     return job.id;
@@ -115,6 +126,7 @@ export class JobQueue {
    * Get job status
    */
   getJobStatus(jobId: string): Job | null {
+    // Check in-memory first (fastest)
     if (this.running.has(jobId)) {
       return this.running.get(jobId) || null;
     }
@@ -125,6 +137,24 @@ export class JobQueue {
     if (pending) {
       return pending;
     }
+
+    // Fallback: Check database if job not found in memory
+    // This handles cases where the job was completed in a previous session
+    if (this.jobRepo) {
+      try {
+        const jobFromDb = this.jobRepo.loadJob(jobId);
+        if (jobFromDb) {
+          // Add to completed cache to speed up future lookups
+          if (jobFromDb.status === 'completed' || jobFromDb.status === 'failed' || jobFromDb.status === 'cancelled') {
+            this.completed.set(jobId, jobFromDb);
+          }
+          return jobFromDb;
+        }
+      } catch (error) {
+        console.error(`[JobQueue] ✗ Error loading job ${jobId} from database:`, error);
+      }
+    }
+
     return null;
   }
 
@@ -134,23 +164,42 @@ export class JobQueue {
   updateProgress(jobId: string, progress: number, message: string): void {
     const job = this.running.get(jobId);
     if (job) {
+      const timestamp = new Date();
       job.progress = Math.min(100, Math.max(0, progress));
       job.progressUpdates.push({
-        timestamp: new Date(),
+        timestamp,
         message,
         percentage: job.progress,
       });
-      
+
       // Calculate estimated time to completion
       if (job.startedAt && job.estimatedTotalMs) {
         const elapsedMs = Date.now() - job.startedAt.getTime();
         const estimatedTotalMs = job.estimatedTotalMs;
         const completedRatio = progress / 100;
-        
-        if (completedRatio > 0.01) { // Only estimate after 1% progress
+
+        if (completedRatio > 0.01) {
+          // Only estimate after 1% progress
           const estimatedTotalBasedOnProgress = elapsedMs / completedRatio;
           job.estimatedTotalMs = Math.max(estimatedTotalMs, estimatedTotalBasedOnProgress);
           job.estimatedCompletionMs = Math.max(0, job.estimatedTotalMs - elapsedMs);
+        }
+      }
+
+      // Persist progress to database if repository available
+      // Note: We update the job record and save progress separately
+      if (this.jobRepo) {
+        try {
+          // Update job progress in main table
+          this.jobRepo.saveJob(job);
+          // Save individual progress update
+          this.jobRepo.saveJobProgress(jobId, timestamp, message, job.progress);
+        } catch (error) {
+          // Don't log every progress update failure to avoid spam
+          // Only log occasionally
+          if (Math.random() < 0.1) {
+            console.error(`[JobQueue] ✗ Failed to persist progress for job ${jobId}:`, error);
+          }
         }
       }
     }
@@ -224,6 +273,17 @@ export class JobQueue {
       job.completedAt = new Date();
       this.pending.splice(pendingIndex, 1);
       this.completed.set(jobId, job);
+
+      // Persist to database if repository available
+      if (this.jobRepo) {
+        try {
+          this.jobRepo.saveJob(job);
+          console.error(`[JobQueue] ✓ Job ${jobId} persisted to database (cancelled)`);
+        } catch (error) {
+          console.error(`[JobQueue] ✗ Failed to persist job ${jobId} to database:`, error);
+        }
+      }
+
       return true;
     }
 
@@ -231,6 +291,17 @@ export class JobQueue {
     const runningJob = this.running.get(jobId);
     if (runningJob) {
       runningJob.status = 'cancelled';
+
+      // Persist to database if repository available
+      if (this.jobRepo) {
+        try {
+          this.jobRepo.saveJob(runningJob);
+          console.error(`[JobQueue] ✓ Job ${jobId} persisted to database (cancelled while running)`);
+        } catch (error) {
+          console.error(`[JobQueue] ✗ Failed to persist job ${jobId} to database:`, error);
+        }
+      }
+
       return true;
     }
 
@@ -365,6 +436,16 @@ export class JobQueue {
         job.startedAt = new Date();
         this.running.set(job.id, job);
 
+        // Persist to database if repository available
+        if (this.jobRepo) {
+          try {
+            this.jobRepo.saveJob(job);
+            console.error(`[JobQueue] ✓ Job ${job.id} persisted to database (running)`);
+          } catch (error) {
+            console.error(`[JobQueue] ✗ Failed to persist job ${job.id} to database:`, error);
+          }
+        }
+
         // Emit event that job started (consumers should listen for this)
         this.onJobStarted(job);
       }
@@ -416,20 +497,7 @@ export class JobQueue {
   }
 }
 
-/**
- * Global job queue instance
- * Concurrency limit can be configured via MAX_CONCURRENT_JOBS environment variable or CLI args
- */
-function getMaxConcurrentJobs(): number {
-  // Check CLI argument first (passed via config)
-  const envValue = process.env.MAX_CONCURRENT_JOBS;
-  const parsed = envValue ? parseInt(envValue, 10) : 3;
-  
-  // Validate: between 1 and 100
-  if (isNaN(parsed) || parsed < 1) return 3;
-  if (parsed > 100) return 100;
-  
-  return parsed;
-}
-
-export const jobQueue = new JobQueue(getMaxConcurrentJobs());
+// Removed global jobQueue singleton to prevent confusion.
+// JobQueue instances should always be created with dependency injection
+// to ensure database persistence works correctly:
+// const jobQueue = new JobQueue(maxConcurrent, jobRepository);

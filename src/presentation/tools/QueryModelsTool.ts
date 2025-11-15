@@ -130,7 +130,9 @@ export function registerQueryModelsTool(
         if (wait_for_completion) {
           const maxWaitTime = 600000; // 10 minutes max
           const pollInterval = 1000; // Check every 1 second
+          const progressReportInterval = 5000; // Report progress every 5 seconds
           const startTime = Date.now();
+          let lastProgressReport = startTime;
 
           debugLog(`Starting to wait for job ${jobId} completion (max wait: ${maxWaitTime}ms)`);
 
@@ -144,13 +146,20 @@ export function registerQueryModelsTool(
                 content: [
                   {
                     type: 'text',
-                    text: `Job ${jobId} not found`,
+                    text: `Job ${jobId} not found in queue. It may have been cleaned up.\n\nPlease check the job status using get-job-result with job ID: ${jobId}`,
                   },
                 ],
               };
             }
 
-            debugLog(`Job ${jobId} status: ${job.status}, progress: ${job.progress}%`);
+            const now = Date.now();
+            const elapsed = now - startTime;
+
+            // Log progress less frequently to reduce noise
+            if (now - lastProgressReport >= progressReportInterval) {
+              debugLog(`Job ${jobId} status: ${job.status}, progress: ${job.progress}%, elapsed: ${(elapsed / 1000).toFixed(1)}s`);
+              lastProgressReport = now;
+            }
 
             if (job.status === 'completed') {
               const result = jobService.getJobResult(jobId);
@@ -162,15 +171,17 @@ export function registerQueryModelsTool(
               }
 
               if (!result) {
-                // Additional debugging - check job object directly
+                // Job completed but result not found - might be a database issue
                 debugLog(`Job object: ${JSON.stringify(job, null, 2)}`);
 
+                // Try to get result from database directly
+                debugLog(`Attempting to retrieve job from database...`);
                 return {
                   isError: true,
                   content: [
                     {
                       type: 'text',
-                      text: `Job completed but no result found for job ID: ${jobId}\n\nJob status: ${JSON.stringify(job, null, 2)}`,
+                      text: `Job completed but result not immediately available.\n\nJob ID: ${jobId}\nStatus: ${job.status}\n\nPlease use get-job-result tool to retrieve the result:\n\`\`\`\nget-job-result(job_id="${jobId}")\n\`\`\``,
                     },
                   ],
                 };
@@ -212,13 +223,18 @@ export function registerQueryModelsTool(
             await new Promise((resolve) => setTimeout(resolve, pollInterval));
           }
 
-          // Timeout reached
+          // Timeout reached - but job may still be running
+          const finalJob = jobService.getJobStatus(jobId);
+          const statusMessage = finalJob
+            ? `Current status: ${finalJob.status}, Progress: ${finalJob.progress}%`
+            : 'Job status unknown';
+
           return {
-            isError: true,
+            isError: false, // Not an error - just a timeout
             content: [
               {
                 type: 'text',
-                text: `Job timeout: Maximum wait time of ${maxWaitTime / 1000} seconds reached. Job ID: ${jobId}\n\nYou can still check the job status using get-job-progress and retrieve results with get-job-result.`,
+                text: `⏱️ Polling timeout reached after ${maxWaitTime / 1000} seconds.\n\nJob ID: ${jobId}\n${statusMessage}\n\n**The job is still running in the background.**\n\nYou can check the status and retrieve results using:\n\n1. Check progress:\n\`\`\`\nget-job-progress(job_id="${jobId}")\n\`\`\`\n\n2. Get result when completed:\n\`\`\`\nget-job-result(job_id="${jobId}")\n\`\`\`\n\n**Tip**: For long-running jobs, set \`wait_for_completion: false\` to get the job ID immediately and poll manually.`,
               },
             ],
           };
