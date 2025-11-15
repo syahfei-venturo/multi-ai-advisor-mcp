@@ -141,15 +141,26 @@ export class McpServer implements SessionFactory {
    * Register tools on a specific server instance
    */
   private registerToolsForServer(server: BaseMcpServer) {
+    // Create notification callback for real-time updates
+    const notifyConversationUpdate = (sessionId: string) => {
+      this.notifyConversationUpdate(sessionId);
+    };
+
+    const notifyJobUpdate = (jobId: string, status: string) => {
+      this.notifyJobUpdate(jobId, status);
+    };
+
     registerQueryModelsTool(
       server,
       this.jobService,
       this.ollamaService,
       this.config.ollama.models,
-      this.debugLog
+      this.debugLog,
+      notifyConversationUpdate,
+      notifyJobUpdate
     );
 
-    registerManageConversationTool(server, this.conversationService);
+    registerManageConversationTool(server, this.conversationService, notifyConversationUpdate);
 
     registerHealthCheckTool(
       server,

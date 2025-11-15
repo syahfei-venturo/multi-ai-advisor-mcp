@@ -116,4 +116,11 @@ export class JobService {
   onJobStarted(callback: (job: Job) => void): void {
     this.jobQueue.onJobStarted_attach(callback);
   }
+
+  /**
+   * Attach job completed callback
+   */
+  onJobCompleted(callback: (job: Job) => void): void {
+    this.jobQueue.onJobCompleted_attach(callback);
+  }
 }

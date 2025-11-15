@@ -7,7 +7,8 @@ import { ConversationService } from '../../application/services/ConversationServ
  */
 export function registerManageConversationTool(
   server: McpServer,
-  conversationService: ConversationService
+  conversationService: ConversationService,
+  notifyConversationUpdate?: (sessionId: string) => void
 ) {
   server.tool(
     'manage-conversation',
@@ -82,6 +83,12 @@ export function registerManageConversationTool(
 
         if (action === 'clear') {
           conversationService.clearHistory(session_id);
+
+          // Notify WebUI about conversation update
+          if (notifyConversationUpdate) {
+            notifyConversationUpdate(session_id);
+          }
+
           return {
             content: [
               {

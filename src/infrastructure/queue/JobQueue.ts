@@ -136,6 +136,10 @@ export class JobQueue {
       job.result = result;
       this.running.delete(jobId);
       this.completed.set(jobId, job);
+
+      // Trigger completion callback
+      this.onJobCompleted(job);
+
       this.processQueue();
     }
   }
@@ -331,10 +335,31 @@ export class JobQueue {
   jobStartedCallback?: (job: Job) => void;
 
   /**
+   * Callback for when a job completes
+   */
+  jobCompletedCallback?: (job: Job) => void;
+
+  /**
    * Attach a callback for when jobs start
    */
   onJobStarted_attach(callback: (job: Job) => void): void {
     this.jobStartedCallback = callback;
+  }
+
+  /**
+   * Attach a callback for when jobs complete
+   */
+  onJobCompleted_attach(callback: (job: Job) => void): void {
+    this.jobCompletedCallback = callback;
+  }
+
+  /**
+   * Callback when a job completes execution
+   */
+  private onJobCompleted(job: Job): void {
+    if (this.jobCompletedCallback) {
+      this.jobCompletedCallback(job);
+    }
   }
 }
 

@@ -11,7 +11,9 @@ export function registerQueryModelsTool(
   jobService: JobService,
   ollamaService: OllamaService,
   defaultModels: string[],
-  debugLog: (message: string) => void
+  debugLog: (message: string) => void,
+  notifyConversationUpdate: (sessionId: string) => void,
+  notifyJobUpdate: (jobId: string, status: string) => void
 ) {
   // Setup job execution handler
   jobService.onJobStarted(async (job) => {
@@ -38,6 +40,24 @@ export function registerQueryModelsTool(
       } catch (error) {
         jobService.failJob(job.id, error instanceof Error ? error.message : String(error));
       }
+    }
+  });
+
+  // Setup job completion handler for real-time notifications
+  jobService.onJobCompleted(async (job) => {
+    if (job.type === 'query-models') {
+      const input = job.input as any;
+      const sessionId = input.session_id;
+
+      debugLog(`Job completed: ${job.id}, notifying conversation update for session: ${sessionId}`);
+
+      // Notify WebUI about conversation update
+      if (sessionId) {
+        notifyConversationUpdate(sessionId);
+      }
+
+      // Notify WebUI about job completion
+      notifyJobUpdate(job.id, 'completed');
     }
   });
 
