@@ -33,7 +33,8 @@ export class OllamaApiClient implements IOllamaClient {
   async generate(
     model: string,
     prompt: string,
-    systemPrompt?: string
+    systemPrompt?: string,
+    abortSignal?: AbortSignal
   ): Promise<OllamaResponse> {
     const response = await this.circuitBreaker.execute(async () => {
       return withRetry(
@@ -43,6 +44,7 @@ export class OllamaApiClient implements IOllamaClient {
             headers: {
               'Content-Type': 'application/json',
             },
+            signal: abortSignal,
             body: JSON.stringify({
               model,
               prompt,
@@ -106,7 +108,11 @@ export class OllamaApiClient implements IOllamaClient {
     return data;
   }
 
-  async chat(model: string, messages: ChatMessage[]): Promise<OllamaResponse> {
+  async chat(
+    model: string,
+    messages: ChatMessage[],
+    abortSignal?: AbortSignal
+  ): Promise<OllamaResponse> {
     const response = await this.circuitBreaker.execute(async () => {
       return withRetry(
         async () => {
@@ -115,6 +121,7 @@ export class OllamaApiClient implements IOllamaClient {
             headers: {
               'Content-Type': 'application/json',
             },
+            signal: abortSignal,
             body: JSON.stringify({
               model,
               messages,

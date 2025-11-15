@@ -21,7 +21,8 @@ export class OllamaService {
    */
   async queryModels(
     request: ModelQueryRequest,
-    onProgress?: (percentage: number, message: string) => void
+    onProgress?: (percentage: number, message: string) => void,
+    abortSignal?: AbortSignal
   ): Promise<QueryResult> {
     const {
       question,
@@ -35,6 +36,11 @@ export class OllamaService {
 
     onProgress?.(5, `Starting query for ${this.defaultModels.length} models...`);
 
+    // Check if abort signal is already aborted
+    if (abortSignal?.aborted) {
+      throw new Error('Query cancelled before execution');
+    }
+
     // Get conversation history
     const history = includeHistory
       ? this.conversationService.getHistory(sessionId)
@@ -44,6 +50,11 @@ export class OllamaService {
     const responses = await Promise.all(
       this.defaultModels.map(async (modelName, index) => {
         try {
+          // Check abort signal before querying each model
+          if (abortSignal?.aborted) {
+            throw new Error(`Query cancelled while processing ${modelName}`);
+          }
+
           let modelSystemPrompt =
             systemPrompt || "You are a helpful AI assistant answering a user's question.";
 
@@ -66,10 +77,10 @@ export class OllamaService {
           // Call appropriate API endpoint based on payload type and extract response
           let responseText: string;
           if (payload.type === 'chat') {
-            const data = await this.ollamaClient.chat(modelName, payload.messages);
+            const data = await this.ollamaClient.chat(modelName, payload.messages, abortSignal);
             responseText = data.message?.content || '';
           } else {
-            const data = await this.ollamaClient.generate(modelName, payload.prompt, payload.system);
+            const data = await this.ollamaClient.generate(modelName, payload.prompt, payload.system, abortSignal);
             responseText = data.response || '';
           }
 
@@ -81,20 +92,27 @@ export class OllamaService {
         } catch (modelError) {
           const errorMessage = (modelError as Error)?.message || String(modelError);
           const isCircuitBreakerOpen = errorMessage.includes('Circuit breaker is OPEN');
+          const isCancelled = errorMessage.includes('cancelled') || 
+                             errorMessage.includes('aborted') ||
+                             errorMessage.includes('AbortError');
 
-          console.error(
-            JSON.stringify({
-              timestamp: new Date().toISOString(),
-              model: modelName,
-              error: errorMessage,
-              severity: isCircuitBreakerOpen ? 'HIGH' : 'MEDIUM',
-              is_circuit_breaker_error: isCircuitBreakerOpen,
-            })
-          );
+          if (!isCancelled) {
+            console.error(
+              JSON.stringify({
+                timestamp: new Date().toISOString(),
+                model: modelName,
+                error: errorMessage,
+                severity: isCircuitBreakerOpen ? 'HIGH' : 'MEDIUM',
+                is_circuit_breaker_error: isCircuitBreakerOpen,
+              })
+            );
+          }
 
           return {
             model: modelName,
-            response: isCircuitBreakerOpen
+            response: isCancelled
+              ? `⚠️ Query cancelled for ${modelName}`
+              : isCircuitBreakerOpen
               ? `⚠️ Service temporarily unavailable (circuit breaker active). ${errorMessage}`
               : `Error: Could not get response from ${modelName}. ${errorMessage}`,
             error: true,
@@ -102,6 +120,11 @@ export class OllamaService {
         }
       })
     );
+
+    // Check if abort signal was triggered during processing
+    if (abortSignal?.aborted) {
+      throw new Error('Query was cancelled during processing');
+    }
 
     onProgress?.(80, 'Processing responses...');
 

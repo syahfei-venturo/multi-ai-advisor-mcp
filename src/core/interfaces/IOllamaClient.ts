@@ -11,13 +11,18 @@ export interface IOllamaClient {
   generate(
     model: string,
     prompt: string,
-    systemPrompt?: string
+    systemPrompt?: string,
+    abortSignal?: AbortSignal
   ): Promise<OllamaResponse>;
 
   /**
    * Chat with a model using structured messages
    */
-  chat(model: string, messages: ChatMessage[]): Promise<OllamaResponse>;
+  chat(
+    model: string,
+    messages: ChatMessage[],
+    abortSignal?: AbortSignal
+  ): Promise<OllamaResponse>;
 
   /**
    * List available models
@@ -29,3 +34,4 @@ export interface IOllamaClient {
    */
   healthCheck(): Promise<boolean>;
 }
+

@@ -174,7 +174,7 @@ export class WebServer {
     this.app.post('/api/jobs/:id/cancel', (req: Request, res: Response) => {
       try {
         this.jobRepo.updateJobStatus(req.params.id, 'cancelled');
-        this.broadcast({ type: 'job_cancelled', jobId: req.params.id });
+        this.broadcast({ type: 'job_cancelled', jobId: req.params.id, status: 'cancelled' });
         res.json({ success: true, message: 'Job cancelled' });
       } catch (error) {
         res.status(500).json({
@@ -233,6 +233,7 @@ export class WebServer {
           type: 'job_cancelled',
           jobId,
           sessionId,
+          status: 'cancelled',
           message: 'Job stopped and user message removed'
         });
 

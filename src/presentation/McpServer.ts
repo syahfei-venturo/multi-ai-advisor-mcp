@@ -198,7 +198,8 @@ export class McpServer implements SessionFactory, SSESessionFactory {
             },
             (percentage, message) => {
               this.jobService.updateProgress(job.id, percentage, message);
-            }
+            },
+            (job as any).abortController?.signal
           );
 
           clearInterval(cancellationCheck);

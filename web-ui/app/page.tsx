@@ -182,8 +182,9 @@ export default function Dashboard() {
           loadJobs();
           loadStats();
           
-          // Clear loading state when job completes
-          if (message.status === 'completed' || message.status === 'failed' || message.status === 'cancelled') {
+          // Clear loading state when job completes, fails, or is cancelled
+          const status = message.status || 'completed';
+          if (status === 'completed' || status === 'failed' || status === 'cancelled') {
             setIsLoading(false);
           }
           break;
