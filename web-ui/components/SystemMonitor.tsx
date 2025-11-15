@@ -23,7 +23,7 @@ export function SystemMonitor({ stats, jobs, isConnected, onRefreshJobs }: Syste
       {/* Floating Action Button */}
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all z-30 flex items-center justify-center relative"
+        className="fixed sm:bottom-4 sm:right-4 sm:top-4 sm:right-6 w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all z-30 flex items-center justify-center relative"
         title="System Monitor"
       >
         <Activity size={18} className="sm:w-5 sm:h-5" />

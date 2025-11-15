@@ -188,14 +188,20 @@ function MessageBubble({ message }: MessageBubbleProps) {
             const msgDate = new Date(message.timestamp);
             const isToday = msgDate.toDateString() === now.toDateString();
 
+            // Use locale-specific formatting with timezone
+            const timeOptions: Intl.DateTimeFormatOptions = {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false  // Use 24-hour format
+            };
+
             if (isToday) {
-              return msgDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              return msgDate.toLocaleTimeString('id-ID', timeOptions);
             } else {
-              return msgDate.toLocaleString([], {
+              return msgDate.toLocaleString('id-ID', {
                 month: 'short',
                 day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
+                ...timeOptions
               });
             }
           })()}
