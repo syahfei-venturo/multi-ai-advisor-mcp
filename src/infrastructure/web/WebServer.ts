@@ -251,11 +251,11 @@ export class WebServer {
     this.wss = new WebSocketServer({ server: this.httpServer });
 
     this.wss.on('connection', (ws: WebSocket) => {
-      console.log('[WebServer] New WebSocket client connected');
+      // Only log connections in debug mode to reduce spam
       this.clients.add(ws);
 
       ws.on('close', () => {
-        console.log('[WebServer] WebSocket client disconnected');
+        // Silent disconnect - don't spam logs
         this.clients.delete(ws);
       });
 

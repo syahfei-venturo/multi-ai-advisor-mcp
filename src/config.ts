@@ -306,87 +306,41 @@ export function getConfig(): Config {
  * Print configuration and available CLI options
  */
 export function printConfigInfo(config: Config): void {
-  console.error('╔════════════════════════════════════════════════════════════╗');
-  console.error('║     Multi-Model Advisor MCP Server Configuration          ║');
-  console.error('╚════════════════════════════════════════════════════════════╝\n');
-  
-  console.error('📊 Current Configuration:');
-  console.error(`  Server: ${config.server.name} v${config.server.version}`);
-  console.error(`  Debug Mode: ${config.server.debug ? '✓ Enabled' : '✗ Disabled'}`);
-  console.error(`  Ollama API URL: ${config.ollama.apiUrl}`);
-  console.error(`  Models: ${config.ollama.models.join(', ')}\n`);
-  
-  if (config.jobQueue) {
-    console.error('⚙️  Job Queue Configuration:');
-    console.error(`  Max Concurrent Jobs: ${config.jobQueue.maxConcurrentJobs}`);
-    console.error(`  Retry Attempts: ${config.jobQueue.defaultRetryAttempts}`);
-    console.error(`  Retry Initial Delay: ${config.jobQueue.defaultInitialDelayMs}ms`);
-    console.error(`  Retry Max Delay: ${config.jobQueue.defaultMaxDelayMs}ms\n`);
-  }
+  console.error('╔══════════════════════════════════════════════════════════════════╗');
+  console.error('║         Multi-Model Advisor MCP Server - Configuration          ║');
+  console.error('╚══════════════════════════════════════════════════════════════════╝');
 
-  if (config.thinking) {
-    console.error('💭 Thinking Configuration:');
-    console.error(`  Default Thinking Steps: ${config.thinking.defaultThinkingSteps}`);
-    console.error(`  Max Thinking Steps: ${config.thinking.maxThinkingSteps}\n`);
-  }
-
-  if (config.webUI) {
-    console.error('🌐 Web UI Configuration:');
-    console.error(`  Enabled: ${config.webUI.enabled ? '✓ Yes' : '✗ No'}`);
-    if (config.webUI.enabled) {
-      console.error(`  Frontend Port (Next.js): ${config.webUI.frontendPort}`);
-      console.error(`  Backend Port (API + MCP): ${config.webUI.backendPort}`);
-      console.error(`  Frontend URL: http://localhost:${config.webUI.frontendPort}`);
-      console.error(`  Backend API: http://localhost:${config.webUI.backendPort}`);
-    }
-    console.error();
-  }
-
-  console.error('💭 System Prompts:');
-  Object.entries(config.prompts).forEach(([model, prompt]) => {
+  // Server info
+  console.error(`\n📊 Server: ${config.server.name} v${config.server.version} ${config.server.debug ? '(Debug Mode)' : ''}`);
+  console.error(`🔗 Ollama: ${config.ollama.apiUrl}`);
+  console.error(`🤖 Models: ${config.ollama.models.length} configured`);
+  config.ollama.models.forEach((model, idx) => {
     const template = config.templates?.[model] || 'legacy';
-    const templateLabel = template === 'chat' ? '📱 chat' : '📄 legacy';
-    console.error(`  ${model} (${templateLabel}):`);
-    console.error(`    "${prompt.substring(0, 70)}${prompt.length > 70 ? '...' : ''}"`);
+    const icon = template === 'chat' ? '💬' : '📝';
+    console.error(`   ${idx + 1}. ${icon} ${model}`);
   });
-  
-  console.error('\n📝 Usage with CLI Arguments:');
-  console.error('  node build/index.js [OPTIONS]\n');
-  
-  console.error('🔧 Available Options:');
-  console.error('  --server-name NAME              Server name (default: multi-model-advisor)');
-  console.error('  --server-version VERSION        Server version (default: 1.0.0)');
-  console.error('  --debug                         Enable debug mode (default: false)');
-  console.error('  --ollama-url URL                Ollama API URL (default: http://localhost:11434)');
-  console.error('  --models MODEL1,MODEL2,...      Comma-separated list of models to use');
-  console.error('  --model1-prompt "TEXT"          System prompt for 1st model (works with ANY models!)');
-  console.error('  --model2-prompt "TEXT"          System prompt for 2nd model');
-  console.error('  --model3-prompt "TEXT"          System prompt for 3rd model (etc.)');
-  console.error('  --model1-template TYPE          Template type: "legacy" or "chat" (auto-detected by default)');
-  console.error('  --model2-template TYPE          Template for 2nd model');
-  console.error('  --model3-template TYPE          Template for 3rd model (etc.)');
-  console.error('  --max-concurrent-jobs NUM       Max concurrent jobs (default: 2)');
-  console.error('  --retry-attempts NUM            Max retry attempts (default: 4)');
-  console.error('  --retry-initial-delay NUM       Initial retry delay in ms (default: 2000)');
-  console.error('  --retry-max-delay NUM           Max retry delay in ms (default: 10000)');
-  console.error('  --default-thinking-steps NUM    Default thinking steps (default: 3)');
-  console.error('  --max-thinking-steps NUM        Max thinking steps allowed (default: 4)');
-  console.error('  --web-ui                        Enable Web UI (default: true)');
-  console.error('  --frontend-port NUM             Next.js frontend port (default: 3000)');
-  console.error('  --backend-port NUM              Express backend + MCP SSE port (default: 3001)');
-  console.error('  --mcp-transport TYPE            MCP transport: "stdio" or "sse" (default: stdio)');
-  console.error('  --mcp-session-timeout NUM       MCP session timeout in minutes (default: 60)\n');
-  
-  console.error('📚 Examples:');
-  console.error('  # Basic start with defaults');
-  console.error('  node build/index.js\n');
-  console.error('  # Use different models with dynamic prompts');
-  console.error('  node build/index.js --models llama3:latest,neural-chat,mistral \\');
-  console.error('    --model1-prompt "You are funny" \\');
-  console.error('    --model2-prompt "You are helpful" \\');
-  console.error('    --model3-prompt "You are analytical"\n');
-  console.error('  # Enable debug with custom Ollama URL and concurrency');
-  console.error('  node build/index.js --debug --ollama-url http://192.168.1.10:11434 --max-concurrent-jobs 5\n');
-  console.error('  # Override via environment variables');
-  console.error('  OLLAMA_API_URL=http://remote:11434 MAX_CONCURRENT_JOBS=10 DEBUG=true node build/index.js\n');
+
+  // Job Queue
+  if (config.jobQueue) {
+    console.error(`\n⚙️  Queue: ${config.jobQueue.maxConcurrentJobs} concurrent | Retry: ${config.jobQueue.defaultRetryAttempts}x (${config.jobQueue.defaultInitialDelayMs}-${config.jobQueue.defaultMaxDelayMs}ms)`);
+  }
+
+  // Thinking
+  if (config.thinking) {
+    console.error(`💭 Thinking: ${config.thinking.defaultThinkingSteps} default steps (max: ${config.thinking.maxThinkingSteps})`);
+  }
+
+  // Web UI
+  if (config.webUI && config.webUI.enabled) {
+    console.error(`\n🌐 Web UI:`);
+    console.error(`   Frontend: http://localhost:${config.webUI.frontendPort}`);
+    console.error(`   Backend:  http://localhost:${config.webUI.backendPort}`);
+  }
+
+  // MCP Transport
+  if (config.mcp) {
+    console.error(`\n📡 MCP: ${config.mcp.transport.toUpperCase()} mode ${config.mcp.transport === 'sse' ? `(session timeout: ${config.mcp.sessionTimeoutMinutes}m)` : ''}`);
+  }
+
+  console.error('\n' + '─'.repeat(68));
 }
