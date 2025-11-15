@@ -41,7 +41,7 @@ export class DatabaseConnection {
         content TEXT NOT NULL,
         model_name TEXT,
         thinking_text TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
         UNIQUE(session_id, message_index)
       );
 
@@ -51,8 +51,8 @@ export class DatabaseConnection {
 
       CREATE TABLE IF NOT EXISTS session_metadata (
         session_id TEXT PRIMARY KEY,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
+        last_accessed TIMESTAMP DEFAULT (datetime('now', 'localtime')),
         message_count INTEGER DEFAULT 0,
         user_metadata TEXT
       );
@@ -64,7 +64,7 @@ export class DatabaseConnection {
         type TEXT NOT NULL,
         status TEXT NOT NULL,
         progress INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT (datetime('now', 'localtime')),
         started_at TIMESTAMP,
         completed_at TIMESTAMP,
         input TEXT NOT NULL,
@@ -78,7 +78,7 @@ export class DatabaseConnection {
       CREATE TABLE IF NOT EXISTS job_progress (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         job_id TEXT NOT NULL,
-        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        timestamp TIMESTAMP DEFAULT (datetime('now', 'localtime')),
         message TEXT NOT NULL,
         percentage INTEGER,
         FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE

@@ -17,8 +17,8 @@ export class ConversationRepository implements IConversationRepository {
     thinking?: string
   ): void {
     const stmt = this.db.prepare(`
-      INSERT OR REPLACE INTO conversations (session_id, message_index, role, content, model_name, thinking_text)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO conversations (session_id, message_index, role, content, model_name, thinking_text, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
     `);
 
     stmt.run(sessionId, messageIndex, role, content, model || null, thinking || null);
@@ -38,7 +38,7 @@ export class ConversationRepository implements IConversationRepository {
     this.db
       .prepare(`
       UPDATE session_metadata
-      SET last_accessed = CURRENT_TIMESTAMP
+      SET last_accessed = datetime('now', 'localtime')
       WHERE session_id = ?
     `)
       .run(sessionId);
@@ -75,7 +75,7 @@ export class ConversationRepository implements IConversationRepository {
     this.db
       .prepare(`
       UPDATE session_metadata
-      SET last_accessed = CURRENT_TIMESTAMP
+      SET last_accessed = datetime('now', 'localtime')
       WHERE session_id = ?
     `)
       .run(sessionId);
@@ -160,7 +160,7 @@ export class ConversationRepository implements IConversationRepository {
 
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO session_metadata (session_id, last_accessed, message_count)
-      VALUES (?, CURRENT_TIMESTAMP, ?)
+      VALUES (?, datetime('now', 'localtime'), ?)
     `);
 
     stmt.run(sessionId, messageCount);
@@ -172,7 +172,7 @@ export class ConversationRepository implements IConversationRepository {
   createSession(sessionId: string): void {
     const stmt = this.db.prepare(`
       INSERT OR IGNORE INTO session_metadata (session_id, last_accessed, message_count)
-      VALUES (?, CURRENT_TIMESTAMP, 0)
+      VALUES (?, datetime('now', 'localtime'), 0)
     `);
     stmt.run(sessionId);
   }
