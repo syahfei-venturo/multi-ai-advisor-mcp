@@ -75,6 +75,14 @@ export class StreamableHTTPTransportManager {
       // The StreamableHTTPClientTransport sends a session ID on first request
       const newSessionId = sessionId || randomUUID();
 
+      // Debug: Log request details to help identify the source
+      console.log(`[StreamableHTTP] New session request from:`, {
+        ip: req.ip || req.socket.remoteAddress,
+        userAgent: req.headers['user-agent'],
+        origin: req.headers['origin'],
+        referer: req.headers['referer']
+      });
+
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => newSessionId,
       });
