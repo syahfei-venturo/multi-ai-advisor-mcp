@@ -98,6 +98,9 @@ export class McpServer implements SessionFactory, SSESessionFactory {
       );
     }
 
+    // Setup global job handlers for query-models (used by both MCP and web API)
+    this.setupQueryModelsJobHandlers();
+
     // Create MCP server only for stdio mode
     // For HTTP-based modes (SSE/Streamable), servers are created per-session
     const transportMode = config.mcp?.transport || 'stdio';
@@ -146,6 +149,69 @@ export class McpServer implements SessionFactory, SSESessionFactory {
       throw new Error('Cannot register tools: server not initialized');
     }
     this.registerToolsForServer(this.server);
+  }
+
+  /**
+   * Setup job handlers for query-models jobs
+   * This is called globally so that both MCP and web API jobs are handled
+   */
+  private setupQueryModelsJobHandlers() {
+    const notifyConversationUpdate = (sessionId: string) => {
+      this.notifyConversationUpdate(sessionId);
+    };
+
+    const notifyJobUpdate = (jobId: string, status: string) => {
+      this.notifyJobUpdate(jobId, status);
+    };
+
+    // Setup job execution handler
+    this.jobService.onJobStarted(async (job) => {
+      if (job.type === 'query-models') {
+        try {
+          const input = job.input as any;
+          const { question, system_prompt, model_system_prompts, session_id, include_history } =
+            input;
+
+          this.debugLog(`[QueryModels] Job ${job.id} started: question="${question.substring(0, 50)}..."`);
+
+          const result = await this.ollamaService.queryModels(
+            {
+              question,
+              systemPrompt: system_prompt,
+              modelSystemPrompts: model_system_prompts,
+              sessionId: session_id,
+              includeHistory: include_history,
+            },
+            (percentage, message) => {
+              this.jobService.updateProgress(job.id, percentage, message);
+            }
+          );
+
+          this.debugLog(`[QueryModels] Job ${job.id} completed successfully`);
+          this.jobService.completeJob(job.id, result);
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : String(error);
+          this.debugLog(`[QueryModels] Job ${job.id} failed: ${errorMsg}`);
+          this.jobService.failJob(job.id, errorMsg);
+        }
+      }
+    });
+
+    // Setup job completion handler for real-time notifications
+    this.jobService.onJobCompleted(async (job) => {
+      if (job.type === 'query-models') {
+        const input = job.input as any;
+        const sessionId = input.session_id;
+
+        this.debugLog(`[QueryModels] Job ${job.id} completed, notifying session ${sessionId}`);
+
+        // Notify WebUI about conversation update
+        notifyConversationUpdate(sessionId);
+
+        // Notify WebUI about job completion
+        notifyJobUpdate(job.id, 'completed');
+      }
+    });
   }
 
   /**

@@ -103,12 +103,15 @@ export default function Dashboard() {
 
       setConversations(prev => [...prev, userMessage]);
 
-      // Send message to MCP server
+      // Send message to backend API
       try {
-        await api.sendMessage(sessionId, message);
+        const result = await api.sendMessage(sessionId, message);
+        console.log('Message sent, job ID:', result.jobId);
       } catch (error) {
-        console.error('Failed to send message to MCP server:', error);
-        // Continue - the WebSocket will handle the response
+        console.error('Failed to send message:', error);
+        setIsLoading(false);
+        // Don't continue - let user know it failed
+        return;
       }
 
       // Update selected session if new
@@ -119,7 +122,8 @@ export default function Dashboard() {
       // Reload sessions to update the list
       loadSessions();
       
-      setIsLoading(false);
+      // Keep loading state true - it will be reset by WebSocket message when job completes
+      // or by onJobCompleted callback
     } catch (error) {
       console.error('Failed to send message:', error);
       setIsLoading(false);
@@ -162,6 +166,11 @@ export default function Dashboard() {
           console.log('Job updated:', message.jobId, message.status);
           loadJobs();
           loadStats();
+          
+          // Clear loading state when job completes
+          if (message.status === 'completed' || message.status === 'failed' || message.status === 'cancelled') {
+            setIsLoading(false);
+          }
           break;
       }
     },
