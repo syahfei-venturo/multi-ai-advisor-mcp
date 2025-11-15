@@ -42,28 +42,17 @@ export class StreamableHTTPTransportManager {
 
   /**
    * Handle GET request (for SSE streaming, optional)
-   * Servers may optionally not support GET/SSE and return 405
+   * This server does NOT support SSE streaming - always returns 405
    */
   async handleGetRequest(req: Request, res: Response): Promise<void> {
-    const sessionId = req.headers[SESSION_ID_HEADER_NAME] as string | undefined;
-
-    // If no session ID provided or session doesn't exist, return 405 Method Not Allowed
-    // This indicates the server doesn't support SSE streaming at this endpoint
-    if (!sessionId || !this.sessions.has(sessionId)) {
-      res.status(405)
-        .set('Allow', 'POST')
-        .json({
-          error: 'Method Not Allowed',
-          message: 'This server does not offer SSE streams. Use POST for all requests.',
-        });
-      return;
-    }
-
-    console.log(`[StreamableHTTP] Establishing SSE stream for session ${sessionId}`);
-    const session = this.sessions.get(sessionId)!;
-    session.lastActivity = new Date();
-
-    await session.transport.handleRequest(req, res);
+    // Streamable HTTP spec: Servers may optionally not support GET/SSE
+    // This server only supports POST requests
+    res.status(405)
+      .set('Allow', 'POST')
+      .json({
+        error: 'Method Not Allowed',
+        message: 'This server does not offer SSE streams. Use POST for all requests.',
+      });
   }
 
   /**
