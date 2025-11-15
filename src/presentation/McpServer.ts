@@ -88,6 +88,7 @@ export class McpServer implements SessionFactory {
       this.webServer = new WebServer(
         this.conversationRepo,
         this.jobRepo,
+        this.jobService,
         config.webUI.backendPort || 3001
       );
     }

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import type { IConversationRepository } from '../../core/interfaces/IConversationRepository.js';
 import type { IJobRepository } from '../../core/interfaces/IJobRepository.js';
 import type { SSETransportManager } from '../transport/SSETransportManager.js';
+import type { JobService } from '../../application/services/JobService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +22,7 @@ export class WebServer {
   constructor(
     private conversationRepo: IConversationRepository,
     private jobRepo: IJobRepository,
+    private jobService: JobService,
     private backendPort: number = 3001
   ) {
     this.app = express();
@@ -95,7 +97,8 @@ export class WebServer {
     // API: Get all jobs
     this.app.get('/api/jobs', (req: Request, res: Response) => {
       try {
-        const jobs = this.jobRepo.getAllJobs();
+        // Use JobService to get in-memory jobs instead of JobRepository (database)
+        const jobs = this.jobService.getAllJobs();
         // Convert Job objects to serializable format
         const serializedJobs = jobs.map(job => ({
           id: job.id,
@@ -152,7 +155,8 @@ export class WebServer {
     // API: Get statistics
     this.app.get('/api/stats', (req: Request, res: Response) => {
       try {
-        const jobs = this.jobRepo.getAllJobs();
+        // Use JobService to get in-memory jobs instead of JobRepository (database)
+        const jobs = this.jobService.getAllJobs();
         const stats = {
           totalJobs: jobs.length,
           completedJobs: jobs.filter(j => j.status === 'completed').length,
