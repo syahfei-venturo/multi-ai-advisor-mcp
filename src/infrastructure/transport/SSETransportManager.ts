@@ -27,7 +27,6 @@ export class SSETransportManager {
   private sessions = new Map<string, McpSession>();
   private sessionFactory: SessionFactory;
   private sessionTimeout: number; // milliseconds
-  private clientSessions = new Map<string, string>(); // clientId -> sessionId mapping
 
   constructor(sessionFactory: SessionFactory, sessionTimeoutMinutes = 60) {
     this.sessionFactory = sessionFactory;
@@ -44,80 +43,58 @@ export class SSETransportManager {
   async handleSSEConnection(req: Request, res: Response): Promise<string> {
     const requestedSessionId = req.params.sessionId;
 
-    // Try to detect client and reuse existing session
-    const clientId = req.headers['user-agent'] || req.ip || 'unknown';
-    const existingSessionId = this.clientSessions.get(clientId);
+    // For SSE, we MUST create a new session for each connection
+    // because each SSE connection needs its own Response object
+    // The Response object cannot be reused across connections
+    const sessionId = requestedSessionId || randomUUID();
 
-    // If client has existing session and no specific sessionId requested, reuse it
-    const sessionId = requestedSessionId || existingSessionId || randomUUID();
-
-    let session = this.sessions.get(sessionId);
-
-    if (!session) {
-      // Create new session
-      const endpoint = `/mcp/messages/${sessionId}`;
-      const transport = new SSEServerTransport(endpoint, res);
-      const server = this.sessionFactory.createServerForSession(sessionId);
-
-      session = {
-        sessionId,
-        transport,
-        server,
-        createdAt: new Date(),
-        lastActivity: new Date(),
-      };
-
-      this.sessions.set(sessionId, session);
-
-      // Map client to session for future reconnections
-      this.clientSessions.set(clientId, sessionId);
-
-      // Handle transport closure BEFORE connecting
-      // (must be set before connect() to catch any immediate errors)
-      transport.onclose = () => {
-        console.error(`[SSETransportManager] Transport closed for session: ${sessionId}`);
-        // Mark session as disconnected but don't remove immediately
-        // This allows client to reconnect with same session ID
-        const existingSession = this.sessions.get(sessionId);
-        if (existingSession) {
-          existingSession.lastActivity = new Date();
-          console.error(`[SSETransportManager] Session ${sessionId} marked for cleanup (will timeout if not reconnected)`);
-        }
-      };
-
-      // Connect server to transport
-      // NOTE: server.connect() automatically calls transport.start()
-      await server.connect(transport);
-
-      // Setup heartbeat to keep connection alive (every 30 seconds)
-      session.heartbeatInterval = setInterval(() => {
-        const currentSession = this.sessions.get(sessionId);
-        if (currentSession) {
-          // SSE comment keeps connection alive
-          // Transport will handle sending keep-alive messages
-          console.error(`[SSETransportManager] Heartbeat for session: ${sessionId}`);
-        } else {
-          // Session was removed, clear interval
-          const sessionToClean = this.sessions.get(sessionId);
-          if (sessionToClean?.heartbeatInterval) {
-            clearInterval(sessionToClean.heartbeatInterval);
-          }
-        }
-      }, 30000); // 30 seconds
-
-      console.error(`[SSETransportManager] New session created: ${sessionId} for client: ${clientId}`);
-    } else {
-      // Reusing existing session
-      session.lastActivity = new Date();
-
-      // Update client mapping
-      this.clientSessions.set(clientId, sessionId);
-
-      console.error(`[SSETransportManager] ♻️ Reusing existing session: ${sessionId} for client: ${clientId}`);
-
-      // Note: We can't replace the response object in existing transport
-      // But we can keep the session alive and MCP state intact
+    // If session already exists with this ID, clean it up first
+    const existingSession = this.sessions.get(sessionId);
+    if (existingSession) {
+      console.error(`[SSETransportManager] ⚠️ Session ${sessionId} already exists, cleaning up old connection`);
+      await this.removeSession(sessionId);
     }
+
+    // Create new session with new transport bound to this response
+    const endpoint = `/mcp/messages/${sessionId}`;
+    const transport = new SSEServerTransport(endpoint, res);
+    const server = this.sessionFactory.createServerForSession(sessionId);
+
+    const session: McpSession = {
+      sessionId,
+      transport,
+      server,
+      createdAt: new Date(),
+      lastActivity: new Date(),
+    };
+
+    this.sessions.set(sessionId, session);
+
+    // Handle transport closure
+    transport.onclose = () => {
+      console.error(`[SSETransportManager] Transport closed for session: ${sessionId}`);
+      // Remove session immediately when transport closes
+      // Client will create new session on reconnect
+      this.removeSession(sessionId);
+    };
+
+    // Connect server to transport
+    await server.connect(transport);
+
+    // Setup heartbeat to keep connection alive (every 30 seconds)
+    session.heartbeatInterval = setInterval(() => {
+      const currentSession = this.sessions.get(sessionId);
+      if (currentSession) {
+        console.error(`[SSETransportManager] Heartbeat for session: ${sessionId}`);
+      } else {
+        // Session was removed, clear interval
+        if (session.heartbeatInterval) {
+          clearInterval(session.heartbeatInterval);
+        }
+      }
+    }, 30000);
+
+    console.error(`[SSETransportManager] New session created: ${sessionId}`);
 
     return sessionId;
   }
@@ -164,14 +141,6 @@ export class SSETransportManager {
     // CRITICAL: Remove from map FIRST to prevent circular calls
     // (transport.close() triggers onclose which would call removeSession again)
     this.sessions.delete(sessionId);
-
-    // Also remove from client mapping
-    for (const [clientId, mappedSessionId] of this.clientSessions.entries()) {
-      if (mappedSessionId === sessionId) {
-        this.clientSessions.delete(clientId);
-        break;
-      }
-    }
 
     try {
       // Clear heartbeat interval
