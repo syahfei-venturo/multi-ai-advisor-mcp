@@ -5,7 +5,7 @@
   "main": "build/index.js",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod 755 build/index.js",
     "start": "node build/index.js",
     "start:debug": "node build/index.js --debug",
     "start:remote": "node build/index.js --ollama-url http://localhost:11434",

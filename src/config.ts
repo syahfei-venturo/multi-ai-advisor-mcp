@@ -235,7 +235,7 @@ export function getConfig(): Config {
 
   // Job queue configuration
   const jobQueueConfig = {
-    maxConcurrentJobs: getNumber('max-concurrent-jobs', 'MAX_CONCURRENT_JOBS', 2),
+    maxConcurrentJobs: getNumber('max-concurrent-jobs', 'MAX_CONCURRENT_JOBS', 3),
     defaultRetryAttempts: getNumber('retry-attempts', 'RETRY_MAX_ATTEMPTS', 4),
     defaultInitialDelayMs: getNumber('retry-initial-delay', 'RETRY_INITIAL_DELAY_MS', 3000),
     defaultMaxDelayMs: getNumber('retry-max-delay', 'RETRY_MAX_DELAY_MS', 10000),
@@ -250,7 +250,7 @@ export function getConfig(): Config {
   // Web UI configuration
   const webUIConfig = {
     enabled: getBoolean('web-ui', 'WEB_UI_ENABLED', true),
-    frontendPort: getNumber('frontend-port', 'FRONTEND_PORT', 3000), // Next.js dev server
+    frontendPort: getNumber('frontend-port', 'FRONTEND_PORT', 3003), // Next.js dev server
     backendPort: getNumber('backend-port', 'BACKEND_PORT', 3001),   // Express API + MCP SSE
   };
 
